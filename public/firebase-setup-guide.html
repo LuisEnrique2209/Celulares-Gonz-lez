@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guía de Configuración Firebase - Celulares González</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px; border-radius: 12px; margin-bottom: 30px; text-align: center; }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { font-size: 1.2em; opacity: 0.9; }
+        .step { background: white; padding: 30px; margin-bottom: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .step-header { display: flex; align-items: center; margin-bottom: 20px; }
+        .step-number { background: #667eea; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.2em; margin-right: 15px; }
+        .step-title { font-size: 1.5em; color: #333; }
+        .step-content { color: #666; line-height: 1.8; }
+        .step-content ul { margin-left: 20px; margin-top: 10px; }
+        .step-content li { margin-bottom: 8px; }
+        .code { background: #f8f9fa; padding: 15px; border-radius: 8px; font-family: 'Courier New', monospace; margin: 15px 0; overflow-x: auto; }
+        .code-inline { background: #e9ecef; padding: 2px 8px; border-radius: 4px; font-family: 'Courier New', monospace; }
+        .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 15px 0; border-radius: 4px; }
+        .success { background: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 15px 0; border-radius: 4px; }
+        .button { display: inline-block; background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin: 10px 5px; transition: background 0.3s; }
+        .button:hover { background: #5568d3; }
+        .button-secondary { background: #6c757d; }
+        .button-secondary:hover { background: #5a6268; }
+        a { color: #667eea; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .checklist { list-style: none; margin-left: 0; }
+        .checklist li { padding: 10px; margin-bottom: 5px; background: #f8f9fa; border-radius: 4px; }
+        .checklist li:before { content: "☐ "; font-size: 1.2em; color: #667eea; }
+        .checklist li.done:before { content: "☑ "; color: #28a745; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔥 Configuración de Firebase</h1>
+            <p>Guía paso a paso para sincronizar tus datos en la nube</p>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">1</div>
+                <div class="step-title">Crear Cuenta en Firebase</div>
+            </div>
+            <div class="step-content">
+                <p>Si no tienes cuenta de Google, créala primero. Luego:</p>
+                <ol style="margin-left: 20px; margin-top: 10px;">
+                    <li>Ve a <a href="https://console.firebase.google.com" target="_blank">Firebase Console</a></li>
+                    <li>Inicia sesión con tu cuenta de Google</li>
+                    <li>Acepta los términos y condiciones</li>
+                </ol>
+                <div class="success">
+                    ✅ <strong>Gratis:</strong> Firebase tiene un plan gratuito generoso (Spark Plan)
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">2</div>
+                <div class="step-title">Crear Proyecto</div>
+            </div>
+            <div class="step-content">
+                <p>En Firebase Console:</p>
+                <ol style="margin-left: 20px; margin-top: 10px;">
+                    <li>Haz clic en <strong>"Agregar proyecto"</strong> o <strong>"Add Project"</strong></li>
+                    <li>Nombre del proyecto: <span class="code-inline">celulares-gonzalez</span></li>
+                    <li>Puedes desactivar Google Analytics (opcional)</li>
+                    <li>Haz clic en <strong>"Crear proyecto"</strong></li>
+                    <li>Espera a que se cree (1-2 minutos)</li>
+                </ol>
+                <div class="warning">
+                    ⚠️ <strong>Importante:</strong> El nombre del proyecto debe ser único en Firebase
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">3</div>
+                <div class="step-title">Crear Base de Datos Firestore</div>
+            </div>
+            <div class="step-content">
+                <p>En el menú lateral izquierdo de tu proyecto:</p>
+                <ol style="margin-left: 20px; margin-top: 10px;">
+                    <li>Busca y haz clic en <strong>"Firestore Database"</strong></li>
+                    <li>Haz clic en <strong>"Crear base de datos"</strong></li>
+                    <li>Selecciona <strong>"Comenzar en modo de prueba"</strong></li>
+                    <li>Elige ubicación: <span class="code-inline">us-central1</span> o <span class="code-inline">southamerica-east1</span></li>
+                    <li>Haz clic en <strong>"Habilitar"</strong></li>
+                </ol>
+                <div class="success">
+                    ✅ <strong>Modo de prueba:</strong> Permite acceso total por 30 días (suficiente para configurar)
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">4</div>
+                <div class="step-title">Registrar Aplicación Web</div>
+            </div>
+            <div class="step-content">
+                <p>En la página principal de tu proyecto:</p>
+                <ol style="margin-left: 20px; margin-top: 10px;">
+                    <li>Busca el ícono de web <strong>(&lt;/&gt;)</strong> o ve a <strong>Configuración del proyecto</strong></li>
+                    <li>En <strong>"Tus apps"</strong>, haz clic en <strong>"Agregar app"</strong> → <strong>"Web"</strong></li>
+                    <li>Nombre del alias: <span class="code-inline">Celulares González Web</span></li>
+                    <li><strong>NO</strong> marques "Configurar también Firebase Hosting"</li>
+                    <li>Haz clic en <strong>"Registrar app"</strong></li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">5</div>
+                <div class="step-title">Copiar Configuración</div>
+            </div>
+            <div class="step-content">
+                <p>Firebase te mostrará un objeto de configuración. Cópialo completo:</p>
+                <div class="code">
+const firebaseConfig = {<br>
+&nbsp;&nbsp;apiKey: "AIzaSy...",<br>
+&nbsp;&nbsp;authDomain: "celulares-gonzalez.firebaseapp.com",<br>
+&nbsp;&nbsp;projectId: "celulares-gonzalez",<br>
+&nbsp;&nbsp;storageBucket: "celulares-gonzalez.appspot.com",<br>
+&nbsp;&nbsp;messagingSenderId: "123456789",<br>
+&nbsp;&nbsp;appId: "1:123456789:web:abc123..."<br>
+};
+                </div>
+                <div class="warning">
+                    ⚠️ <strong>Guarda estos valores:</strong> Los necesitarás en el siguiente paso
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">6</div>
+                <div class="step-title">Actualizar tu Código</div>
+            </div>
+            <div class="step-content">
+                <p>Abre el archivo <span class="code-inline">src/firebase.ts</span> en tu proyecto y reemplaza los valores:</p>
+                <div class="code">
+const firebaseConfig = {<br>
+&nbsp;&nbsp;apiKey: <strong>"TU_API_KEY_AQUI"</strong>,&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// ← Pega tu apiKey<br>
+&nbsp;&nbsp;authDomain: <strong>"TU_PROYECTO.firebaseapp.com"</strong>,&nbsp;&nbsp;// ← Pega tu authDomain<br>
+&nbsp;&nbsp;projectId: <strong>"TU_PROYECTO"</strong>,&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// ← Pega tu projectId<br>
+&nbsp;&nbsp;storageBucket: <strong>"TU_PROYECTO.appspot.com"</strong>,&nbsp;&nbsp;&nbsp;// ← Pega tu storageBucket<br>
+&nbsp;&nbsp;messagingSenderId: <strong>"TU_SENDER_ID"</strong>,&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// ← Pega tu messagingSenderId<br>
+&nbsp;&nbsp;appId: <strong>"TU_APP_ID"</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// ← Pega tu appId<br>
+};
+                </div>
+                <p><strong>Guarda el archivo</strong> y recarga tu aplicación.</p>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">7</div>
+                <div class="step-title">Configurar Reglas de Seguridad</div>
+            </div>
+            <div class="step-content">
+                <p>En Firestore Database, ve a la pestaña <strong>"Reglas"</strong> y reemplaza con:</p>
+                <div class="code">
+rules_version = '2';<br>
+service cloud.firestore {<br>
+&nbsp;&nbsp;match /databases/{database}/documents {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;match /{document=**} {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if true;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;}<br>
+}
+                </div>
+                <p>Haz clic en <strong>"Publicar"</strong></p>
+                <div class="warning">
+                    ⚠️ <strong>Para producción:</strong> Implementa autenticación y actualiza las reglas
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">8</div>
+                <div class="step-title">Migrar Datos Locales</div>
+            </div>
+            <div class="step-content">
+                <p>Si tienes datos en tu navegador actual:</p>
+                <ol style="margin-left: 20px; margin-top: 10px;">
+                    <li>Abre tu aplicación en el navegador</li>
+                    <li>Ve a la URL: <span class="code-inline">http://localhost:3000/firebase-setup</span></li>
+                    <li>Haz clic en <strong>"Migrar Datos a Firebase"</strong></li>
+                    <li>Confirma la migración</li>
+                    <li>Opcionalmente, limpia los datos locales</li>
+                </ol>
+                <div class="success">
+                    ✅ <strong>Listo:</strong> Tus datos ahora están en la nube
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">9</div>
+                <div class="step-title">Publicar en Vercel</div>
+            </div>
+            <div class="step-content">
+                <p>Para acceder desde cualquier dispositivo:</p>
+                <ol style="margin-left: 20px; margin-top: 10px;">
+                    <li>Sube tu código a GitHub (ver guía anterior)</li>
+                    <li>Ve a <a href="https://vercel.com" target="_blank">Vercel</a></li>
+                    <li>Inicia sesión con GitHub</li>
+                    <li>Importa tu repositorio</li>
+                    <li>Haz clic en <strong>"Deploy"</strong></li>
+                    <li>Espera 1-2 minutos</li>
+                </ol>
+                <p>Vercel te dará una URL como: <span class="code-inline">https://celulares-gonzalez.vercel.app</span></p>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">✓</div>
+                <div class="step-title">¡Completado!</div>
+            </div>
+            <div class="step-content">
+                <p>Ahora tu aplicación:</p>
+                <ul class="checklist">
+                    <li class="done">Guarda datos en la nube de Firebase</li>
+                    <li class="done">Se sincroniza en tiempo real</li>
+                    <li class="done">Es accesible desde cualquier dispositivo</li>
+                    <li class="done">Tiene copias de seguridad automáticas</li>
+                    <li class="done">Usa el plan gratuito de Firebase (1GB, 50K lecturas/día)</li>
+                </ul>
+                <div style="margin-top: 20px;">
+                    <a href="https://console.firebase.google.com" target="_blank" class="button">Ir a Firebase Console</a>
+                    <a href="https://vercel.com" target="_blank" class="button button-secondary">Ir a Vercel</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="step" style="background: #e7f3ff; border-left: 4px solid #2196F3;">
+            <div class="step-header">
+                <div class="step-number">💡</div>
+                <div class="step-title">Soporte</div>
+            </div>
+            <div class="step-content">
+                <p><strong>¿Tienes problemas?</strong></p>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li>Abre la consola del navegador (F12) para ver errores</li>
+                    <li>Verifica que las credenciales estén correctas</li>
+                    <li>Asegúrate de que Firestore esté habilitado</li>
+                    <li>Revisa las reglas de seguridad</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

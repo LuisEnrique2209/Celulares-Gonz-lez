@@ -1,0 +1,10 @@
+# Dependencies
+node_modules/
+
+# Build output (se genera en el despliegue, no se sube a GitHub)
+dist/
+
+# Entorno local / editores
+.env
+.env.local
+.DS_Store
