@@ -2,11 +2,13 @@ import {
   collection, 
   doc, 
   getDocs, 
+  setDoc,
   addDoc, 
   updateDoc, 
   deleteDoc, 
   query, 
   orderBy,
+  where,
   writeBatch
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -24,8 +26,21 @@ export const firebaseDevices = {
   },
   
   add: async (device: Device): Promise<void> => {
+    // Verificar si ya existe un dispositivo con el mismo IMEI (evita duplicados
+    // si se re-intenta guardar un chequeo que falló a mitad del proceso)
+    const qImei = query(collection(db, 'devices'), where('imei', '==', device.imei));
+    const snap = await getDocs(qImei);
+    if (!snap.empty) {
+      // Ya existe: actualizarlo en lugar de crear un duplicado
+      const existingId = snap.docs[0].id;
+      const { id, ...data } = device;
+      await updateDoc(doc(db, 'devices', existingId), data);
+      return;
+    }
     const { id, ...data } = device;
-    await addDoc(collection(db, 'devices'), data);
+    // Usar setDoc con id explícito para que sea idempotente y no choque
+    // contra reglas/índices de addDoc
+    await setDoc(doc(db, 'devices', id), data);
   },
   
   update: async (device: Device): Promise<void> => {
@@ -142,7 +157,22 @@ export const firebaseSlots = {
   
   update: async (slot: CheckSlot): Promise<void> => {
     const { id, ...data } = slot;
-    await updateDoc(doc(db, 'checkSlots', id), data);
+    try {
+      await updateDoc(doc(db, 'checkSlots', id), data);
+    } catch (err: any) {
+      // Si el documento no existe (p.ej. migraciones antiguas), crearlo con setDoc
+      if (err?.code === 'not-found' || err?.message?.includes('not found')) {
+        await setDoc(doc(db, 'checkSlots', id), data);
+      } else {
+        throw err;
+      }
+    }
+  },
+
+  getByLot: async (lotId: string): Promise<CheckSlot[]> => {
+    const q = query(collection(db, 'checkSlots'), where('lotId', '==', lotId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docToData);
   }
 };
 

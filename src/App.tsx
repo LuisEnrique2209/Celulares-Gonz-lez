@@ -204,49 +204,93 @@ export default function App() {
 
   const handleCheckComplete = async (check: QualityCheck, lot: Lot) => {
     try {
+      // 1) Guardar el chequeo de calidad primero (si esto falla, no se marca nada)
       await firebaseChecks.add(check);
-      const updatedChecks = await firebaseChecks.getAll();
-      setChecks(updatedChecks);
-      
-      // Create device in inventory automatically
-      const slot = slots.find(s => s.id === check.slotId);
-      if (slot) {
-        // Calculate prorated costs from lot
-        const totalQuantity = getLotTotalQuantity(lot);
-        const rate = lot.exchangeRate || 0;
-        const subtotalMXN = lot.totalPrice * rate;
-        const totalCostMXN = subtotalMXN + lot.importExpenses + lot.shippingExpenses + lot.otherExpenses;
-        const costPerUnit = totalQuantity > 0 ? totalCostMXN / totalQuantity : 0;
-        
-        // Create device with prorated costs
+
+      // 2) Crear o recuperar el dispositivo en inventario.
+      //    Se busca por IMEI para que, si un intento anterior falló a mitad
+      //    del proceso, no se duplique ni falle el "paso a stock".
+      const allDevices = await firebaseDevices.getAll();
+      const existingDevice = allDevices.find(d => d.imei === check.imei);
+
+      // Calcular costos prorrateados del lote
+      const totalQuantity = getLotTotalQuantity(lot);
+      const rate = lot.exchangeRate || 0;
+      const subtotalMXN = lot.totalPrice * rate;
+      const totalCostMXN = subtotalMXN + lot.importExpenses + lot.shippingExpenses + lot.otherExpenses;
+      const costPerUnit = totalQuantity > 0 ? totalCostMXN / totalQuantity : 0;
+
+      const deviceStatus: Device['status'] = check.overallStatus === 'approved' ? 'in_stock' : 'received';
+
+      let deviceId: string;
+      if (existingDevice) {
+        // Actualizar el existente (re-cheking) en lugar de crear duplicado
+        deviceId = existingDevice.id;
+        await firebaseDevices.update({
+          ...existingDevice,
+          model: check.model,
+          status: deviceStatus,
+          checked: true,
+          checkDate: check.checkDate,
+          batteryPercentage: check.batteryPercentage,
+          qualityStatus: check.overallStatus === 'approved' ? 'approved' : 'rejected',
+        });
+      } else {
+        deviceId = generateId();
         const newDevice: Device = {
-          id: generateId(),
-          imei: slot.imei,
-          model: slot.model,
-          color: slot.color,
-          storage: slot.storage,
+          id: deviceId,
+          imei: check.imei,
+          model: check.model,
+          color: check.color || '',
+          storage: check.storage || '',
           purchaseDate: lot.purchaseDate,
           arrivalDate: lot.arrivalDate,
-          purchasePrice: costPerUnit, // Prorated cost
-          importExpenses: 0, // Already included in prorated cost
-          shippingExpenses: 0, // Already included in prorated cost
-          otherExpenses: 0, // Already included in prorated cost
-          status: check.overallStatus === 'approved' ? 'in_stock' : 'received',
+          purchasePrice: costPerUnit, // Costo prorrateado
+          importExpenses: 0, // Ya incluido en el costo prorrateado
+          shippingExpenses: 0, // Ya incluido en el costo prorrateado
+          otherExpenses: 0, // Ya incluido en el costo prorrateado
+          status: deviceStatus,
           lotId: lot.id,
           notes: '',
           checked: true,
           checkDate: check.checkDate,
+          batteryPercentage: check.batteryPercentage,
+          qualityStatus: check.overallStatus === 'approved' ? 'approved' : 'rejected',
         };
-        
         await firebaseDevices.add(newDevice);
-        const updatedDevices = await firebaseDevices.getAll();
-        setDevices(updatedDevices);
-        
-        // Mark slot as checked
-        await firebaseSlots.update({ ...slot, checked: true, checkId: check.id });
-        const updatedSlots = await firebaseSlots.getAll();
-        setSlots(updatedSlots);
       }
+
+      // 3) Marcar el slot como checado (con re-intento si el doc no existe)
+      const freshSlots = await firebaseSlots.getByLot(lot.id);
+      const slot = freshSlots.find(s => s.id === check.slotId);
+      await firebaseSlots.update({
+        ...(slot ?? {
+          id: check.slotId,
+          lotId: lot.id,
+          model: check.model,
+          imei: check.imei,
+          color: check.color || '',
+          storage: check.storage || '',
+          checked: false,
+        }),
+        imei: check.imei,
+        color: check.color || slot?.color || '',
+        storage: check.storage || slot?.storage || '',
+        batteryPercentage: check.batteryPercentage,
+        checked: true,
+        checkId: check.id,
+        deviceId,
+      } as CheckSlot);
+
+      // 4) Refrescar estado local desde Firebase
+      const [updatedChecks, updatedDevices, updatedSlots] = await Promise.all([
+        firebaseChecks.getAll(),
+        firebaseDevices.getAll(),
+        firebaseSlots.getAll(),
+      ]);
+      setChecks(updatedChecks);
+      setDevices(updatedDevices);
+      setSlots(updatedSlots);
     } catch (error) {
       console.error('Error completando chequeo:', error);
       alert('Error al completar el chequeo. Intenta de nuevo.');
