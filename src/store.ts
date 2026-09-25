@@ -183,7 +183,13 @@ export function deleteQualityCheck(id: string): void {
 }
 
 export function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
+  // ID único basado en timestamp + aleatoriedad suficiente para evitar colisiones
+  // cuando se generan varios dispositivos en el mismo milisegundo.
+  return (
+    Date.now().toString(36) + '-' +
+    Math.random().toString(36).slice(2, 10) +
+    Math.random().toString(36).slice(2, 10)
+  );
 }
 
 export const IPHONE_MODELS = [

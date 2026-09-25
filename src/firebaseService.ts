@@ -1,19 +1,59 @@
-import { 
-  collection, 
-  doc, 
-  getDocs, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  orderBy,
-  writeBatch
+import {
+  collection,
+  doc,
+  getDocs,
+  setDoc,
+  deleteDoc,
+  query,
+  writeBatch,
+  getDoc
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, MonthlyGoal } from './types';
 
 // Helper para convertir documentos de Firestore
-const docToData = (doc: any) => ({ id: doc.id, ...doc.data() });
+const docToData = (d: any) => ({ id: d.id, ...d.data() });
+
+// Quita el "id" del objeto para guardarlo como campo de documento (evita duplicar el id)
+const stripId = <T extends { id: string }>(item: T) => {
+  const { id, ...data } = item;
+  return data;
+};
+
+// Espera breve (para reintentos)
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Reintenta una operación asíncrona ante errores transitorios de Firestore
+ * (límite de escrituras por segundo, timeouts, unavailable, etc).
+ */
+async function withRetries<T>(fn: () => Promise<T>, attempts = 4, baseDelayMs = 500): Promise<T> {
+  let lastError: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      const code = error?.code;
+      const retriable =
+        code === 'resource-exhausted' ||
+        code === 'unavailable' ||
+        code === 'deadline-exceeded' ||
+        code === 'aborted' ||
+        code === 'internal' ||
+        !code; // errores de red suelen no traer code
+      if (!retriable || i === attempts - 1) break;
+      await sleep(baseDelayMs * (i + 1));
+    }
+  }
+  throw lastError;
+}
+
+// Crea/actualiza un documento usando SU propio id como clave del documento.
+// setDoc es idempotente: si la app reintenta el guardado, NO crea registros duplicados.
+const upsertById = async <T extends { id: string }>(colName: string, item: T): Promise<void> => {
+  await withRetries(() => setDoc(doc(db, colName, item.id), stripId(item)));
+};
 
 // ============ DEVICES ============
 export const firebaseDevices = {
@@ -22,17 +62,15 @@ export const firebaseDevices = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   add: async (device: Device): Promise<void> => {
-    const { id, ...data } = device;
-    await addDoc(collection(db, 'devices'), data);
+    await upsertById('devices', device);
   },
-  
+
   update: async (device: Device): Promise<void> => {
-    const { id, ...data } = device;
-    await updateDoc(doc(db, 'devices', id), data);
+    await upsertById('devices', device);
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'devices', id));
   }
@@ -45,26 +83,24 @@ export const firebaseLots = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   add: async (lot: Lot): Promise<void> => {
-    const { id, ...data } = lot;
-    await addDoc(collection(db, 'lots'), data);
+    await upsertById('lots', lot);
   },
-  
+
   update: async (lot: Lot): Promise<void> => {
-    const { id, ...data } = lot;
-    await updateDoc(doc(db, 'lots', id), data);
+    await upsertById('lots', lot);
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'lots', id));
     // También eliminar los slots asociados
     const slotsQ = query(collection(db, 'checkSlots'));
     const snapshot = await getDocs(slotsQ);
     const batch = writeBatch(db);
-    snapshot.docs.forEach(doc => {
-      if (doc.data().lotId === id) {
-        batch.delete(doc.ref);
+    snapshot.docs.forEach(d => {
+      if (d.data().lotId === id) {
+        batch.delete(d.ref);
       }
     });
     await batch.commit();
@@ -78,17 +114,15 @@ export const firebaseSales = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   add: async (sale: Sale): Promise<void> => {
-    const { id, ...data } = sale;
-    await addDoc(collection(db, 'sales'), data);
+    await upsertById('sales', sale);
   },
-  
+
   update: async (sale: Sale): Promise<void> => {
-    const { id, ...data } = sale;
-    await updateDoc(doc(db, 'sales', id), data);
+    await upsertById('sales', sale);
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'sales', id));
   }
@@ -101,17 +135,15 @@ export const firebaseChecks = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   add: async (check: QualityCheck): Promise<void> => {
-    const { id, ...data } = check;
-    await addDoc(collection(db, 'qualityChecks'), data);
+    await upsertById('qualityChecks', check);
   },
-  
+
   update: async (check: QualityCheck): Promise<void> => {
-    const { id, ...data } = check;
-    await updateDoc(doc(db, 'qualityChecks', id), data);
+    await upsertById('qualityChecks', check);
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'qualityChecks', id));
   }
@@ -124,25 +156,30 @@ export const firebaseSlots = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   add: async (slot: CheckSlot): Promise<void> => {
-    const { id, ...data } = slot;
-    await addDoc(collection(db, 'checkSlots'), data);
+    await upsertById('checkSlots', slot);
   },
-  
+
+  // Escribe todos los slots en lotes de máximo 400 operaciones (el límite de
+  // writeBatch de Firestore es 500). Antes, un lote de más de 500 dispositivos
+  // fallaba al intentar generar todos los slots de una sola vez.
   addMany: async (slots: CheckSlot[]): Promise<void> => {
-    const batch = writeBatch(db);
-    slots.forEach(slot => {
-      const { id, ...data } = slot;
-      const docRef = doc(collection(db, 'checkSlots'));
-      batch.set(docRef, data);
-    });
-    await batch.commit();
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < slots.length; i += BATCH_SIZE) {
+      const chunk = slots.slice(i, i + BATCH_SIZE);
+      await withRetries(async () => {
+        const batch = writeBatch(db);
+        chunk.forEach(slot => {
+          batch.set(doc(db, 'checkSlots', slot.id), stripId(slot));
+        });
+        await batch.commit();
+      });
+    }
   },
-  
+
   update: async (slot: CheckSlot): Promise<void> => {
-    const { id, ...data } = slot;
-    await updateDoc(doc(db, 'checkSlots', id), data);
+    await upsertById('checkSlots', slot);
   }
 };
 
@@ -153,24 +190,22 @@ export const firebaseCustomers = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   addOrUpdate: async (customer: Customer): Promise<void> => {
     // Buscar si ya existe por teléfono o nombre
     const q = query(collection(db, 'customers'));
     const snapshot = await getDocs(q);
-    const existing = snapshot.docs.find(doc => 
-      doc.data().phone === customer.phone || doc.data().name === customer.name
+    const existing = snapshot.docs.find(d =>
+      d.data().phone === customer.phone || d.data().name === customer.name
     );
-    
-    const { id, ...data } = customer;
-    
+
     if (existing) {
-      await updateDoc(doc(db, 'customers', existing.id), data);
+      await withRetries(() => setDoc(doc(db, 'customers', existing.id), stripId(customer), { merge: true }));
     } else {
-      await addDoc(collection(db, 'customers'), data);
+      await upsertById('customers', customer);
     }
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'customers', id));
   }
@@ -183,17 +218,15 @@ export const firebaseRepairs = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   add: async (repair: Repair): Promise<void> => {
-    const { id, ...data } = repair;
-    await addDoc(collection(db, 'repairs'), data);
+    await upsertById('repairs', repair);
   },
-  
+
   update: async (repair: Repair): Promise<void> => {
-    const { id, ...data } = repair;
-    await updateDoc(doc(db, 'repairs', id), data);
+    await upsertById('repairs', repair);
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'repairs', id));
   }
@@ -206,17 +239,15 @@ export const firebaseExpenses = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   add: async (expense: MonthlyExpense): Promise<void> => {
-    const { id, ...data } = expense;
-    await addDoc(collection(db, 'monthlyExpenses'), data);
+    await upsertById('monthlyExpenses', expense);
   },
-  
+
   update: async (expense: MonthlyExpense): Promise<void> => {
-    const { id, ...data } = expense;
-    await updateDoc(doc(db, 'monthlyExpenses', id), data);
+    await upsertById('monthlyExpenses', expense);
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'monthlyExpenses', id));
   }
@@ -229,17 +260,15 @@ export const firebaseGoals = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
   add: async (goal: MonthlyGoal): Promise<void> => {
-    const { id, ...data } = goal;
-    await addDoc(collection(db, 'monthlyGoals'), data);
+    await upsertById('monthlyGoals', goal);
   },
-  
+
   update: async (goal: MonthlyGoal): Promise<void> => {
-    const { id, ...data } = goal;
-    await updateDoc(doc(db, 'monthlyGoals', id), data);
+    await upsertById('monthlyGoals', goal);
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'monthlyGoals', id));
   }
@@ -248,24 +277,20 @@ export const firebaseGoals = {
 // ============ SUPPLIERS & REVIEWERS ============
 export const firebaseMeta = {
   getSuppliers: async (): Promise<string[]> => {
-    const q = query(collection(db, 'meta'));
-    const snapshot = await getDocs(q);
-    const metaDoc = snapshot.docs.find(d => d.id === 'suppliers');
-    return metaDoc?.data().list || [];
+    const snap = await getDoc(doc(db, 'meta', 'suppliers'));
+    return snap.exists() ? (snap.data().list || []) : [];
   },
-  
+
   saveSuppliers: async (suppliers: string[]): Promise<void> => {
-    await updateDoc(doc(db, 'meta', 'suppliers'), { list: suppliers });
+    await withRetries(() => setDoc(doc(db, 'meta', 'suppliers'), { list: suppliers }));
   },
-  
+
   getReviewers: async (): Promise<string[]> => {
-    const q = query(collection(db, 'meta'));
-    const snapshot = await getDocs(q);
-    const metaDoc = snapshot.docs.find(d => d.id === 'reviewers');
-    return metaDoc?.data().list || [];
+    const snap = await getDoc(doc(db, 'meta', 'reviewers'));
+    return snap.exists() ? (snap.data().list || []) : [];
   },
-  
+
   saveReviewers: async (reviewers: string[]): Promise<void> => {
-    await updateDoc(doc(db, 'meta', 'reviewers'), { list: reviewers });
+    await withRetries(() => setDoc(doc(db, 'meta', 'reviewers'), { list: reviewers }));
   }
 };

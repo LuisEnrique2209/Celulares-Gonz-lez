@@ -17,6 +17,7 @@ export interface Device {
   saleDate?: string;
   checked?: boolean;
   checkDate?: string;
+  batteryPercentage?: number; // Salud / porcentaje de batería registrado en el chequeo de calidad
 }
 
 export interface LotItem {
@@ -51,6 +52,7 @@ export interface CheckSlot {
   storage: string;
   checked: boolean;
   checkId?: string;
+  batteryPercentage?: number; // Porcentaje de batería capturado durante la revisión
 }
 
 export interface Sale {
@@ -140,6 +142,8 @@ export interface QualityCheck {
   lotId: string;
   imei: string;
   model: string;
+  color?: string;
+  storage?: string;
   checkDate: string;
   screen: 'pass' | 'fail';
   camera: 'pass' | 'fail';

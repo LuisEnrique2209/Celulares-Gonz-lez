@@ -68,6 +68,8 @@ export default function QualityCheckForm({ pendingSlots, onSave, editingCheck, o
       lotId: selectedSlot.lotId,
       imei: selectedSlot.imei,
       model: selectedSlot.model,
+      color: selectedSlot.color,
+      storage: selectedSlot.storage,
       checkDate,
       screen,
       camera,

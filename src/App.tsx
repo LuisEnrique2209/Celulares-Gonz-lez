@@ -194,62 +194,169 @@ export default function App() {
   const handleSlotUpdate = async (slot: CheckSlot) => {
     try {
       await firebaseSlots.update(slot);
-      const updatedSlots = await firebaseSlots.getAll();
+      // Refrescar además los dispositivos: así, si en una sesión anterior un
+      // equipo checado no llegó al inventario, la reconciliación lo recupera.
+      const [updatedSlots, updatedDevices] = await Promise.all([
+        firebaseSlots.getAll(),
+        firebaseDevices.getAll(),
+      ]);
       setSlots(updatedSlots);
+      setDevices(updatedDevices);
     } catch (error) {
       console.error('Error actualizando slot:', error);
-      alert('Error al actualizar el slot. Intenta de nuevo.');
+      alert('Error al actualizar el slot. Revisa tu conexión e inténtalo de nuevo.');
+      throw error;
     }
   };
 
   const handleCheckComplete = async (check: QualityCheck, lot: Lot) => {
     try {
-      await firebaseChecks.add(check);
-      const updatedChecks = await firebaseChecks.getAll();
-      setChecks(updatedChecks);
-      
-      // Create device in inventory automatically
+      // IMPORTANTE: buscar el slot ANTES de cualquier await y usar los datos
+      // del propio chequeo (IMEI/color/almacenamiento capturados en la revisión).
       const slot = slots.find(s => s.id === check.slotId);
+
+      // Calcular costo prorrateado del lote
+      const totalQuantity = getLotTotalQuantity(lot);
+      const rate = lot.exchangeRate || 0;
+      const subtotalMXN = lot.totalPrice * rate;
+      const totalCostMXN = subtotalMXN + lot.importExpenses + lot.shippingExpenses + lot.otherExpenses;
+      const costPerUnit = totalQuantity > 0 ? totalCostMXN / totalQuantity : 0;
+
+      // Crear el dispositivo con un id DERIVADO del slot: así el guardado es
+      // idempotente (si hay reintento por saturación de Firestore, no se
+      // duplica el equipo en el inventario).
+      const newDevice: Device = {
+        id: 'dev-' + check.slotId,
+        imei: check.imei,
+        model: check.model,
+        color: check.color ?? slot?.color ?? '',
+        storage: check.storage ?? slot?.storage ?? '',
+        purchaseDate: lot.purchaseDate,
+        arrivalDate: lot.arrivalDate,
+        purchasePrice: costPerUnit, // Costo prorrateado
+        importExpenses: 0, // Ya incluido en el costo prorrateado
+        shippingExpenses: 0, // Ya incluido en el costo prorrateado
+        otherExpenses: 0, // Ya incluido en el costo prorrateado
+        status: check.overallStatus === 'approved' ? 'in_stock' : 'received',
+        lotId: lot.id,
+        notes: '',
+        checked: true,
+        checkDate: check.checkDate,
+        batteryPercentage: check.batteryPercentage,
+      };
+
+      // 1) Guardar el chequeo de calidad
+      await firebaseChecks.add(check);
+
+      // 2) Agregar/actualizar el dispositivo en inventario (aprobados e
+      // rechazados: los rechazados quedan como "Recibido" para reparación)
+      await firebaseDevices.add(newDevice);
+
+      // 3) Marcar el slot como checado
       if (slot) {
-        // Calculate prorated costs from lot
-        const totalQuantity = getLotTotalQuantity(lot);
-        const rate = lot.exchangeRate || 0;
-        const subtotalMXN = lot.totalPrice * rate;
-        const totalCostMXN = subtotalMXN + lot.importExpenses + lot.shippingExpenses + lot.otherExpenses;
-        const costPerUnit = totalQuantity > 0 ? totalCostMXN / totalQuantity : 0;
-        
-        // Create device with prorated costs
-        const newDevice: Device = {
-          id: generateId(),
-          imei: slot.imei,
-          model: slot.model,
-          color: slot.color,
-          storage: slot.storage,
-          purchaseDate: lot.purchaseDate,
-          arrivalDate: lot.arrivalDate,
-          purchasePrice: costPerUnit, // Prorated cost
-          importExpenses: 0, // Already included in prorated cost
-          shippingExpenses: 0, // Already included in prorated cost
-          otherExpenses: 0, // Already included in prorated cost
-          status: check.overallStatus === 'approved' ? 'in_stock' : 'received',
-          lotId: lot.id,
-          notes: '',
+        await firebaseSlots.update({
+          ...slot,
+          imei: check.imei,
           checked: true,
-          checkDate: check.checkDate,
-        };
-        
+          checkId: check.id,
+          batteryPercentage: check.batteryPercentage,
+        });
+      }
+
+      // 4) Verificar que el dispositivo realmente quedó guardado; si la
+      // escritura se perdió, reintentar una vez más.
+      let updatedDevices = await firebaseDevices.getAll();
+      if (!updatedDevices.some(d => d.id === newDevice.id)) {
         await firebaseDevices.add(newDevice);
-        const updatedDevices = await firebaseDevices.getAll();
+        updatedDevices = await firebaseDevices.getAll();
+      }
+
+      const [updatedChecks, updatedSlots] = await Promise.all([
+        firebaseChecks.getAll(),
+        firebaseSlots.getAll(),
+      ]);
+      setChecks(updatedChecks);
+      setDevices(updatedDevices);
+      setSlots(updatedSlots);
+    } catch (error) {
+      console.error('Error completando chequeo:', error);
+      alert('Error al completar el chequeo. Revisa tu conexión e inténtalo de nuevo. Si el equipo ya aparece en Inventario, NO lo vuelvas a checar para no duplicarlo.');
+    }
+  };
+
+  // Al terminar de checar un lote completo, conciliar los datos con Firebase:
+  // asegurar que TODO dispositivo aprobado/rechazado exista en inventario y que
+  // todos los slots queden marcados como checados. Esto evita que equipos se
+  // "pierdan" por escrituras fallidas o saturación momentánea de Firestore.
+  const reconcileFinishedLot = async (lot: Lot, lotSlots: CheckSlot[]) => {
+    try {
+      const [allDevices, allChecks] = await Promise.all([
+        firebaseDevices.getAll(),
+        firebaseChecks.getAll(),
+      ]);
+
+      const totalQuantity = getLotTotalQuantity(lot);
+      const rate = lot.exchangeRate || 0;
+      const subtotalMXN = lot.totalPrice * rate;
+      const totalCostMXN = subtotalMXN + lot.importExpenses + lot.shippingExpenses + lot.otherExpenses;
+      const costPerUnit = totalQuantity > 0 ? totalCostMXN / totalQuantity : 0;
+
+      let devicesChanged = false;
+      let slotsChanged = false;
+      const fixedSlots: CheckSlot[] = [];
+
+      for (const slot of lotSlots) {
+        const check = allChecks.find(c => c.id === slot.checkId || c.slotId === slot.id);
+        const deviceId = 'dev-' + slot.id;
+
+        // ¿Falta el dispositivo en inventario? Crearlo a partir del chequeo.
+        if (check && !allDevices.some(d => d.id === deviceId || (d.imei && d.imei === check.imei))) {
+          await firebaseDevices.add({
+            id: deviceId,
+            imei: check.imei,
+            model: check.model,
+            color: slot.color || '',
+            storage: slot.storage || '',
+            purchaseDate: lot.purchaseDate,
+            arrivalDate: lot.arrivalDate,
+            purchasePrice: costPerUnit,
+            importExpenses: 0,
+            shippingExpenses: 0,
+            otherExpenses: 0,
+            status: check.overallStatus === 'approved' ? 'in_stock' : 'received',
+            lotId: lot.id,
+            notes: '',
+            checked: true,
+            checkDate: check.checkDate,
+            batteryPercentage: check.batteryPercentage,
+          });
+          devicesChanged = true;
+        }
+
+        // ¿El slot sigue apareciendo sin checar aunque ya tiene revisión?
+        if (!slot.checked && check) {
+          fixedSlots.push({ ...slot, checked: true, checkId: check.id, batteryPercentage: check.batteryPercentage });
+          slotsChanged = true;
+        } else {
+          fixedSlots.push(slot);
+        }
+      }
+
+      if (slotsChanged) {
+        await firebaseSlots.addMany(fixedSlots);
+      }
+
+      if (devicesChanged || slotsChanged) {
+        const [updatedDevices, updatedSlots] = await Promise.all([
+          firebaseDevices.getAll(),
+          firebaseSlots.getAll(),
+        ]);
         setDevices(updatedDevices);
-        
-        // Mark slot as checked
-        await firebaseSlots.update({ ...slot, checked: true, checkId: check.id });
-        const updatedSlots = await firebaseSlots.getAll();
         setSlots(updatedSlots);
       }
     } catch (error) {
-      console.error('Error completando chequeo:', error);
-      alert('Error al completar el chequeo. Intenta de nuevo.');
+      // La reconciliación es un respaldo: si falla, no bloquear la pantalla final.
+      console.warn('No se pudo reconciliar el lote al terminar:', error);
     }
   };
 
@@ -317,24 +424,72 @@ export default function App() {
   // Quality Check handlers
   const handleSaveCheck = async (check: QualityCheck) => {
     try {
+      // Buscar el slot ANTES de cualquier await (estado actual garantizado)
+      const slot = slots.find(s => s.id === check.slotId);
+      const lot = lots.find(l => l.id === check.lotId);
+
       if (editingCheck) {
         await firebaseChecks.update(check);
       } else {
         await firebaseChecks.add(check);
       }
-      const updatedChecks = await firebaseChecks.getAll();
-      setChecks(updatedChecks);
-      const slot = slots.find(s => s.id === check.slotId);
-      if (slot) {
-        await firebaseSlots.update({ ...slot, checked: true, checkId: check.id });
-        const updatedSlots = await firebaseSlots.getAll();
-        setSlots(updatedSlots);
+
+      // Crear/actualizar el dispositivo en inventario con id derivado del slot
+      // (idempotente: no duplica equipos si se reintenta el guardado)
+      if (slot && lot) {
+        const totalQuantity = getLotTotalQuantity(lot);
+        const rate = lot.exchangeRate || 0;
+        const subtotalMXN = lot.totalPrice * rate;
+        const totalCostMXN = subtotalMXN + lot.importExpenses + lot.shippingExpenses + lot.otherExpenses;
+        const costPerUnit = totalQuantity > 0 ? totalCostMXN / totalQuantity : 0;
+
+        const deviceId = 'dev-' + slot.id;
+        const existingDevices = await firebaseDevices.getAll();
+        const existing = existingDevices.find(d => d.id === deviceId || (d.imei && d.imei === check.imei));
+
+        const deviceData: Device = {
+          id: existing?.id || deviceId,
+          imei: check.imei,
+          model: check.model,
+          color: check.color ?? slot.color ?? '',
+          storage: check.storage ?? slot.storage ?? '',
+          purchaseDate: lot.purchaseDate,
+          arrivalDate: lot.arrivalDate,
+          purchasePrice: costPerUnit,
+          importExpenses: 0,
+          shippingExpenses: 0,
+          otherExpenses: 0,
+          status: check.overallStatus === 'approved' ? 'in_stock' : 'received',
+          lotId: lot.id,
+          notes: existing?.notes ?? '',
+          checked: true,
+          checkDate: check.checkDate,
+          batteryPercentage: check.batteryPercentage,
+        };
+        await firebaseDevices.add(deviceData);
+
+        await firebaseSlots.update({
+          ...slot,
+          imei: check.imei,
+          checked: true,
+          checkId: check.id,
+          batteryPercentage: check.batteryPercentage,
+        });
       }
+
+      const [updatedChecks, updatedDevices, updatedSlots] = await Promise.all([
+        firebaseChecks.getAll(),
+        firebaseDevices.getAll(),
+        firebaseSlots.getAll(),
+      ]);
+      setChecks(updatedChecks);
+      setDevices(updatedDevices);
+      setSlots(updatedSlots);
       setEditingCheck(null);
       setActiveTab('quality-check');
     } catch (error) {
       console.error('Error guardando chequeo:', error);
-      alert('Error al guardar el chequeo. Intenta de nuevo.');
+      alert('Error al guardar el chequeo. Revisa tu conexión e inténtalo de nuevo.');
     }
   };
 
@@ -487,7 +642,7 @@ export default function App() {
       case 'dashboard':
         return <Dashboard devices={devices} lots={lots} sales={sales} checks={checks} customers={customers} />;
       case 'inventory':
-        return <Inventory devices={devices} lots={lots} onEdit={handleEditDevice} onDelete={handleDeleteDevice} />;
+        return <Inventory devices={devices} lots={lots} checks={checks} onEdit={handleEditDevice} onDelete={handleDeleteDevice} />;
       case 'lots':
         return <Lots lots={lots} devices={devices} slots={slots} onEdit={handleEditLot} onDelete={handleDeleteLot} onCheckLot={handleCheckLot} />;
       case 'sales':
@@ -516,8 +671,10 @@ export default function App() {
             <CheckLot
               lot={checkingLot}
               slots={checkingLotSlots}
+              checks={checks}
               onSlotUpdate={handleSlotUpdate}
               onCheckComplete={(check) => handleCheckComplete(check, checkingLot)}
+              onLotReconcile={() => reconcileFinishedLot(checkingLot, checkingLotSlots)}
               onBack={() => { setCheckingLotId(null); setActiveTab('lots'); }}
             />
           );

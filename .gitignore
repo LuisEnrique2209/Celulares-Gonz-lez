@@ -1,35 +1,10 @@
 # Dependencies
-node_modules
-package-lock.json
+node_modules/
 
-# Build output
-dist
+# Build output (se genera en el despliegue, no se sube a GitHub)
+dist/
 
-# Environment variables
+# Entorno local / editores
 .env
 .env.local
-.env.production
-
-# IDE
-.vscode
-.idea
-*.swp
-*.swo
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Firebase
-.firebase
-firebase-debug.log
-node_modules/
-.next/
-dist/
-build/
-*.log

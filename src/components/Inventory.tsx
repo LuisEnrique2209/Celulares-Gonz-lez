@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { Device, Lot } from '../types';
+import { Device, Lot, QualityCheck } from '../types';
 import { formatCurrency, formatDate, IPHONE_MODELS } from '../store';
 
 interface Props {
   devices: Device[];
   lots: Lot[];
+  checks?: QualityCheck[];
   onEdit: (device: Device) => void;
   onDelete: (id: string) => void;
 }
 
-export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
+export default function Inventory({ devices, lots, checks = [], onEdit, onDelete }: Props) {
   const [search, setSearch] = useState('');
   const [filterModel, setFilterModel] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -34,6 +35,31 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
   const getLotName = (lotId: string) => {
     const lot = lots.find(l => l.id === lotId);
     return lot ? lot.name : 'Sin lote';
+  };
+
+  const getBatteryBadge = (device: Device) => {
+    // Respaldo: si el dispositivo no tiene batería guardada pero existe su
+    // chequeo de calidad (mismo id derivado del slot), tomarla de ahí.
+    let pct = device.batteryPercentage;
+    if ((pct === undefined || pct === null) && checks && checks.length > 0) {
+      const relatedCheck = checks.find(c => c.imei && c.imei === device.imei);
+      if (relatedCheck && typeof relatedCheck.batteryPercentage === 'number' && relatedCheck.batteryPercentage > 0) {
+        pct = relatedCheck.batteryPercentage;
+      }
+    }
+    if (typeof pct !== 'number' || pct <= 0) {
+      return <span className="text-xs text-gray-400">—</span>;
+    }
+    const color =
+      pct >= 85 ? 'bg-green-100 text-green-700 border-green-200' :
+      pct >= 80 ? 'bg-lime-100 text-lime-700 border-lime-200' :
+      pct >= 70 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+      'bg-red-100 text-red-700 border-red-200';
+    return (
+      <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border font-semibold ${color}`}>
+        🔋 {pct}%
+      </span>
+    );
   };
 
   const getStatusBadge = (status: string) => {
@@ -131,6 +157,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">IMEI</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Batería</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Modelo</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Color</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Almacenamiento</th>
@@ -148,6 +175,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
                 return (
                   <tr key={device.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-sm font-mono text-gray-900">{device.imei}</td>
+                    <td className="px-4 py-3">{getBatteryBadge(device)}</td>
                     <td className="px-4 py-3 text-sm text-gray-900 font-medium">{device.model}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{device.color}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{device.storage}</td>
@@ -210,7 +238,10 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
                     <h3 className="text-base font-bold text-gray-900 truncate">{device.model}</h3>
                     {getStatusBadge(device.status)}
                   </div>
-                  <p className="text-xs font-mono text-gray-500 truncate">{device.imei}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-mono text-gray-500 truncate">{device.imei}</p>
+                    {getBatteryBadge(device)}
+                  </div>
                 </div>
                 {device.checked ? (
                   <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-200 font-medium flex-shrink-0">
@@ -330,6 +361,10 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
                   <div>
                     <p className="text-xs text-gray-500 uppercase">IMEI</p>
                     <p className="text-sm font-mono font-semibold">{selectedDevice.imei}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase">Batería</p>
+                    <p className="text-sm font-semibold">{getBatteryBadge(selectedDevice)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase">Modelo</p>

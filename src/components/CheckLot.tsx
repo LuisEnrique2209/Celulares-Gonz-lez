@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Lot, CheckSlot, QualityCheck } from '../types';
 import { generateId, getLotTotalQuantity, COLOR_OPTIONS, STORAGE_OPTIONS, getReviewers, addReviewer } from '../store';
 import { getColorsForModel } from '../iphoneColors';
@@ -6,12 +6,14 @@ import { getColorsForModel } from '../iphoneColors';
 interface Props {
   lot: Lot;
   slots: CheckSlot[];
+  checks: QualityCheck[];
   onSlotUpdate: (slot: CheckSlot) => void;
   onCheckComplete: (check: QualityCheck, lot: Lot) => void;
+  onLotReconcile?: () => Promise<void> | void;
   onBack: () => void;
 }
 
-export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, onBack }: Props) {
+export default function CheckLot({ lot, slots, checks, onSlotUpdate, onCheckComplete, onLotReconcile, onBack }: Props) {
   const [currentSlotIndex, setCurrentSlotIndex] = useState(0);
   const [showTestForm, setShowTestForm] = useState(false);
   const [imei, setImei] = useState('');
@@ -36,6 +38,15 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
   const pendingSlots = slots.filter(s => !s.checked);
   const checkedSlots = slots.filter(s => s.checked);
   const totalQuantity = getLotTotalQuantity(lot);
+
+  // Al entrar (o al terminar el lote), conciliar con Firebase para asegurar que
+  // ningún dispositivo checado se haya quedado fuera del inventario.
+  useEffect(() => {
+    if (onLotReconcile && pendingSlots.length === 0) {
+      onLotReconcile();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots.length, lot.id]);
 
   const currentSlot = pendingSlots[currentSlotIndex];
 
@@ -65,11 +76,12 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
       imei,
       color,
       storage,
+      batteryPercentage: parseInt(batteryPercentage) || undefined,
     };
     onSlotUpdate(updatedSlot);
   };
 
-  const handleCompleteCheck = () => {
+  const handleCompleteCheck = async () => {
     if (!currentSlot || !imei || !checkedBy) {
       alert('Completa el IMEI y tu nombre');
       return;
@@ -86,9 +98,10 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
       imei,
       color,
       storage,
+      batteryPercentage: parseInt(batteryPercentage) || undefined,
       checked: true,
     };
-    onSlotUpdate(updatedSlot);
+    await onSlotUpdate(updatedSlot);
 
     // Create quality check
     const allPass = [screen, camera, battery, speakers, microphone, wifi, bluetooth, buttons, charging, faceId].every(t => t === 'pass');
@@ -101,6 +114,8 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
       lotId: lot.id,
       imei,
       model: currentSlot.model,
+      color,
+      storage,
       checkDate: new Date().toISOString().split('T')[0],
       screen,
       camera,
@@ -124,6 +139,11 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
     setCurrentSlotIndex(0);
   };
 
+  // Conteo de aprobados/rechazados basados en los chequeos de este lote
+  const lotChecks = checks.filter(c => c.lotId === lot.id);
+  const approvedCount = lotChecks.filter(c => c.overallStatus === 'approved').length;
+  const rejectedCount = lotChecks.filter(c => c.overallStatus === 'rejected').length;
+
   // All done view
   if (pendingSlots.length === 0) {
     return (
@@ -140,6 +160,14 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">¡Todos los dispositivos han sido checados!</h3>
           <p className="text-gray-500 mb-2">Se completaron las {totalQuantity} revisiones del lote.</p>
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <span className="px-3 py-1.5 rounded-lg bg-green-100 text-green-700 text-sm font-bold border border-green-200">
+              ✓ {approvedCount} aprobados (en stock)
+            </span>
+            <span className="px-3 py-1.5 rounded-lg bg-red-100 text-red-700 text-sm font-bold border border-red-200">
+              ✗ {rejectedCount} rechazados (recibido / por reparar)
+            </span>
+          </div>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 max-w-md mx-auto">
             <p className="text-sm text-blue-800 font-medium">
               ✅ Todos los dispositivos fueron agregados automáticamente al inventario
@@ -157,6 +185,9 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
                   <span className="text-xs text-green-600">→ Inventario</span>
                 </div>
                 <span className="text-xs font-mono text-gray-600">{slot.imei}</span>
+                {typeof slot.batteryPercentage === 'number' && slot.batteryPercentage > 0 && (
+                  <span className="text-xs text-gray-600 font-medium">🔋 {slot.batteryPercentage}%</span>
+                )}
                 <span className="text-xs text-green-700 font-medium">✓ Checado</span>
               </div>
             ))}
@@ -727,6 +758,9 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
                 </div>
                 <div className="flex items-center gap-4">
                   <span className="text-xs font-mono text-gray-600">{slot.imei}</span>
+                  {typeof slot.batteryPercentage === 'number' && slot.batteryPercentage > 0 && (
+                    <span className="text-xs text-gray-600 font-medium">🔋 {slot.batteryPercentage}%</span>
+                  )}
                   <span className="text-xs text-green-700 font-medium">✓ Checado</span>
                 </div>
               </div>
