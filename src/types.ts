@@ -17,6 +17,8 @@ export interface Device {
   saleDate?: string;
   checked?: boolean;
   checkDate?: string;
+  batteryPercentage?: number; // % de batería registrado en el chequeo de calidad
+  qualityStatus?: 'approved' | 'rejected'; // resultado del chequeo de calidad
 }
 
 export interface LotItem {
@@ -51,6 +53,8 @@ export interface CheckSlot {
   storage: string;
   checked: boolean;
   checkId?: string;
+  batteryPercentage?: number; // % de batería registrado al checar
+  deviceId?: string; // dispositivo creado en inventario al aprobar/rechazar
 }
 
 export interface Sale {
@@ -135,11 +139,13 @@ export interface CustomGoal {
 
 export interface QualityCheck {
   id: string;
-  deviceId: string;
+  deviceId?: string; // id del dispositivo en inventario (si ya fue creado)
   slotId: string;
   lotId: string;
   imei: string;
   model: string;
+  color?: string;
+  storage?: string;
   checkDate: string;
   screen: 'pass' | 'fail';
   camera: 'pass' | 'fail';

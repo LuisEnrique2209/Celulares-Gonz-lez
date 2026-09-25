@@ -6,8 +6,8 @@ import { getColorsForModel } from '../iphoneColors';
 interface Props {
   lot: Lot;
   slots: CheckSlot[];
-  onSlotUpdate: (slot: CheckSlot) => void;
-  onCheckComplete: (check: QualityCheck, lot: Lot) => void;
+  onSlotUpdate: (slot: CheckSlot) => Promise<void> | void;
+  onCheckComplete: (check: QualityCheck, lot: Lot) => Promise<void> | void;
   onBack: () => void;
 }
 
@@ -32,6 +32,7 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
   const [charging, setCharging] = useState<'pass' | 'fail'>('fail');
   const [faceId, setFaceId] = useState<'pass' | 'fail'>('fail');
   const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const pendingSlots = slots.filter(s => !s.checked);
   const checkedSlots = slots.filter(s => s.checked);
@@ -65,15 +66,19 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
       imei,
       color,
       storage,
+      batteryPercentage: parseInt(batteryPercentage) || currentSlot.batteryPercentage,
     };
     onSlotUpdate(updatedSlot);
   };
 
-  const handleCompleteCheck = () => {
+  const handleCompleteCheck = async () => {
     if (!currentSlot || !imei || !checkedBy) {
       alert('Completa el IMEI y tu nombre');
       return;
     }
+    if (saving) return; // evitar doble envío
+    setSaving(true);
+    try {
 
     // Save reviewer to list
     if (checkedBy) {
@@ -86,9 +91,10 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
       imei,
       color,
       storage,
+      batteryPercentage: parseInt(batteryPercentage) || 0,
       checked: true,
     };
-    onSlotUpdate(updatedSlot);
+    await onSlotUpdate(updatedSlot);
 
     // Create quality check
     const allPass = [screen, camera, battery, speakers, microphone, wifi, bluetooth, buttons, charging, faceId].every(t => t === 'pass');
@@ -96,11 +102,12 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
 
     const check: QualityCheck = {
       id: generateId(),
-      deviceId: '',
       slotId: currentSlot.id,
       lotId: lot.id,
       imei,
       model: currentSlot.model,
+      color,
+      storage,
       checkDate: new Date().toISOString().split('T')[0],
       screen,
       camera,
@@ -117,11 +124,14 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
       notes,
       checkedBy,
     };
-    onCheckComplete(check, lot);
+    await onCheckComplete(check, lot);
 
     // Always reset to index 0 since pendingSlots recalculates after each check
     resetTestForm();
     setCurrentSlotIndex(0);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // All done view
@@ -151,13 +161,18 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
           
           <div className="max-w-md mx-auto space-y-2">
             {checkedSlots.map(slot => (
-              <div key={slot.id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-100">
-                <div className="flex items-center gap-2">
+              <div key={slot.id} className="flex items-center justify-between gap-2 p-3 bg-green-50 rounded-lg border border-green-100">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="text-sm font-medium text-gray-900">{slot.model}</span>
                   <span className="text-xs text-green-600">→ Inventario</span>
                 </div>
-                <span className="text-xs font-mono text-gray-600">{slot.imei}</span>
-                <span className="text-xs text-green-700 font-medium">✓ Checado</span>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {typeof slot.batteryPercentage === 'number' && slot.batteryPercentage > 0 && (
+                    <span className="text-xs font-semibold text-emerald-700">🔋 {slot.batteryPercentage}%</span>
+                  )}
+                  <span className="text-xs font-mono text-gray-600">{slot.imei}</span>
+                  <span className="text-xs text-green-700 font-medium">✓ Checado</span>
+                </div>
               </div>
             ))}
           </div>
@@ -706,9 +721,10 @@ export default function CheckLot({ lot, slots, onSlotUpdate, onCheckComplete, on
             </button>
             <button
               onClick={handleCompleteCheck}
-              className="flex-1 px-6 py-3 bg-teal-600 text-white text-sm font-bold rounded-lg hover:bg-teal-700 transition-colors"
+              disabled={saving}
+              className="flex-1 px-6 py-3 bg-teal-600 text-white text-sm font-bold rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {pendingSlots.length > 1 ? '✓ Guardar y Siguiente →' : '✓ Completar Revisión'}
+              {saving ? 'Guardando...' : pendingSlots.length > 1 ? '✓ Guardar y Siguiente →' : '✓ Completar Revisión'}
             </button>
           </div>
         </div>

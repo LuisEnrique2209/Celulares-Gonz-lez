@@ -23,7 +23,7 @@ export default function QualityChecks({ checks, lots, onEdit, onDelete }: Props)
     const matchSearch = search === '' ||
       c.imei.toLowerCase().includes(search.toLowerCase()) ||
       c.model.toLowerCase().includes(search.toLowerCase()) ||
-      c.checkedBy.toLowerCase().includes(search.toLowerCase());
+      (c.checkedBy || '').toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus === '' || c.overallStatus === filterStatus;
     const matchLot = filterLot === '' || c.lotId === filterLot;
     return matchSearch && matchStatus && matchLot;

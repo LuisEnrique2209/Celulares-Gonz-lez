@@ -36,6 +36,24 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
     return lot ? lot.name : 'Sin lote';
   };
 
+  // Color según nivel de batería
+  const getBatteryStyle = (pct: number) => {
+    if (pct >= 80) return 'bg-green-100 text-green-700 border-green-200';
+    if (pct >= 50) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+    return 'bg-red-100 text-red-700 border-red-200';
+  };
+
+  const BatteryBadge = ({ pct }: { pct?: number }) => {
+    if (typeof pct !== 'number' || pct <= 0) {
+      return <span className="text-xs text-gray-400">—</span>;
+    }
+    return (
+      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-semibold ${getBatteryStyle(pct)}`}>
+        🔋 {pct}%
+      </span>
+    );
+  };
+
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       in_transit: 'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -131,6 +149,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">IMEI</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Batería</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Modelo</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Color</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Almacenamiento</th>
@@ -148,6 +167,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
                 return (
                   <tr key={device.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-sm font-mono text-gray-900">{device.imei}</td>
+                    <td className="px-4 py-3"><BatteryBadge pct={device.batteryPercentage} /></td>
                     <td className="px-4 py-3 text-sm text-gray-900 font-medium">{device.model}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{device.color}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{device.storage}</td>
@@ -211,6 +231,9 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
                     {getStatusBadge(device.status)}
                   </div>
                   <p className="text-xs font-mono text-gray-500 truncate">{device.imei}</p>
+                  <div className="mt-1">
+                    <BatteryBadge pct={device.batteryPercentage} />
+                  </div>
                 </div>
                 {device.checked ? (
                   <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-200 font-medium flex-shrink-0">
@@ -330,6 +353,10 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
                   <div>
                     <p className="text-xs text-gray-500 uppercase">IMEI</p>
                     <p className="text-sm font-mono font-semibold">{selectedDevice.imei}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase">Batería</p>
+                    <p className="text-sm font-semibold"><BatteryBadge pct={selectedDevice.batteryPercentage} /></p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase">Modelo</p>
