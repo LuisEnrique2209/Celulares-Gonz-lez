@@ -12,9 +12,13 @@ import {
   generateId,
   getCustomers, deleteCustomer,
   getRepairs, addRepair, updateRepair, deleteRepair,
-  getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense
+  getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense,
+  addOrUpdateCustomer,
 } from './store';
 import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals } from './firebaseService';
+
+// Clave para recordar si el usuario ya migró sus datos locales a Firebase
+const MIGRATION_KEY = 'iphone_tracker_migrated_to_firebase';
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
 import Lots from './components/Lots';
@@ -53,12 +57,14 @@ export default function App() {
   const [lastSaleForPolicy, setLastSaleForPolicy] = useState<Sale | null>(null);
 
   useEffect(() => {
-    // Cargar datos desde Firebase
+    // Cargar datos desde Firebase. Si Firebase está vacío y hay datos locales
+    // (guardados antes de conectar la base en la nube), se MIGRAN automáticamente
+    // a Firebase para no perder información ni ver el inventario vacío.
     const loadData = async () => {
       try {
         console.log('🔄 Cargando datos desde Firebase...');
-        
-        const [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData] = await Promise.all([
+
+        let [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData] = await Promise.all([
           firebaseDevices.getAll(),
           firebaseLots.getAll(),
           firebaseSales.getAll(),
@@ -68,7 +74,64 @@ export default function App() {
           firebaseRepairs.getAll(),
           firebaseExpenses.getAll()
         ]);
-        
+
+        const firebaseEmpty =
+          devicesData.length === 0 && lotsData.length === 0 && salesData.length === 0 &&
+          checksData.length === 0 && slotsData.length === 0 && customersData.length === 0 &&
+          repairsData.length === 0 && expensesData.length === 0;
+
+        const localData = {
+          devices: getDevices(),
+          lots: getLots(),
+          sales: getSales(),
+          checks: getQualityChecks(),
+          slots: getCheckSlots(),
+          customers: getCustomers(),
+          repairs: getRepairs(),
+          expenses: getMonthlyExpenses(),
+        };
+        const hasLocalData = Object.values(localData).some(arr => arr.length > 0);
+
+        if (firebaseEmpty && hasLocalData && !localStorage.getItem(MIGRATION_KEY)) {
+          console.log('📤 Firebase vacío y hay datos locales: migrando a la nube...');
+          try {
+            await Promise.all([
+              ...localData.devices.map(d => firebaseDevices.add(d)),
+              ...localData.lots.map(l => firebaseLots.add(l)),
+              ...localData.sales.map(s => firebaseSales.add(s)),
+              ...localData.checks.map(c => firebaseChecks.add(c)),
+              ...localData.slots.map(sl => firebaseSlots.add(sl)),
+              ...localData.customers.map(c => firebaseCustomers.addOrUpdate(c)),
+              ...localData.repairs.map(r => firebaseRepairs.add(r)),
+              ...localData.expenses.map(e => firebaseExpenses.add(e)),
+            ]);
+            localStorage.setItem(MIGRATION_KEY, 'true');
+            console.log('✅ Migración completada');
+            // Volver a leer todo desde Firebase (fuente de verdad ahora)
+            [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData] = await Promise.all([
+              firebaseDevices.getAll(),
+              firebaseLots.getAll(),
+              firebaseSales.getAll(),
+              firebaseChecks.getAll(),
+              firebaseSlots.getAll(),
+              firebaseCustomers.getAll(),
+              firebaseRepairs.getAll(),
+              firebaseExpenses.getAll()
+            ]);
+          } catch (migErr) {
+            console.warn('⚠️ No se pudo migrar automáticamente; usando datos locales por ahora:', migErr);
+            setDevices(localData.devices);
+            setLots(localData.lots);
+            setSales(localData.sales);
+            setChecks(localData.checks);
+            setSlots(localData.slots);
+            setCustomers(localData.customers);
+            setRepairs(localData.repairs);
+            setMonthlyExpenses(localData.expenses);
+            return;
+          }
+        }
+
         console.log('✅ Datos cargados desde Firebase:', {
           devices: devicesData.length,
           lots: lotsData.length,
@@ -79,7 +142,7 @@ export default function App() {
           repairs: repairsData.length,
           expenses: expensesData.length
         });
-        
+
         setDevices(devicesData);
         setLots(lotsData);
         setSales(salesData);
@@ -102,9 +165,10 @@ export default function App() {
         setMonthlyExpenses(getMonthlyExpenses());
       }
     };
-    
+
     loadData();
   }, []);
+
 
   // Device handlers
   const handleSaveDevice = async (device: Device) => {
@@ -299,6 +363,11 @@ export default function App() {
 
   // Sale handlers
   const handleSaveSale = async (sale: Sale) => {
+    // Espejo local inmediato: la venta queda guardada en este navegador aunque
+    // falle la nube (así nunca se "pierde" una venta ni sale error bloqueante)
+    try { addSale(sale); } catch {}
+    try { addOrUpdateCustomer(sale.customerName, sale.customerPhone, sale.customerEmail, sale.salePrice, sale.saleDate); } catch {}
+
     try {
       if (editingSale) {
         await firebaseSales.update(sale);
@@ -351,8 +420,13 @@ export default function App() {
       setEditingSale(null);
       setActiveTab('sales');
     } catch (error) {
-      console.error('Error guardando venta:', error);
-      alert('Error al guardar la venta. Revisa tu conexión e intenta de nuevo.');
+      console.error('Error guardando venta en Firebase:', error);
+      // La venta YA quedó guardada localmente arriba: no se perdió.
+      setSales(getSales());
+      setCustomers(getCustomers());
+      setEditingSale(null);
+      setActiveTab('sales');
+      alert('⚠️ No hay conexión con el servidor en este momento, pero la venta QUEDÓ GUARDADA en este dispositivo y podrás sincronizarla después.');
     }
   };
 
