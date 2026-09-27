@@ -302,13 +302,19 @@ export default function App() {
     try {
       if (editingSale) {
         await firebaseSales.update(sale);
-        setEditingSale(null);
-        setActiveTab('sales');
       } else {
-        await firebaseSales.add(sale);
+        // Evitar duplicados: si ya existe una venta para este dispositivo
+        // (p.ej. un intento anterior que falló a mitad del proceso), actualizarla
+        const existingSale = await firebaseSales.findByDeviceId(sale.deviceId);
+        if (existingSale && existingSale.id !== sale.id) {
+          await firebaseSales.update({ ...sale, id: existingSale.id });
+        } else {
+          await firebaseSales.add(sale);
+        }
         setLastSaleForPolicy(sale);
       }
-      // Update device status to sold
+
+      // Actualizar estado del dispositivo a "vendido"
       const updatedDevices = await firebaseDevices.getAll();
       const deviceIndex = updatedDevices.findIndex(d => d.id === sale.deviceId);
       if (deviceIndex !== -1) {
@@ -321,21 +327,78 @@ export default function App() {
         await firebaseDevices.update(updatedDevices[deviceIndex]);
         setDevices(updatedDevices);
       }
-      const updatedSales = await firebaseSales.getAll();
-      const updatedCustomers = await firebaseCustomers.getAll();
-      setSales(updatedSales);
-      setCustomers(updatedCustomers);
+
+      // Registrar la compra en el cliente DESPUÉS de guardar la venta, y
+      // recalculando sus estadísticas desde sus ventas reales (sin inflar contadores)
+      try {
+        await firebaseCustomers.recordPurchase(
+          sale.customerName,
+          sale.customerPhone,
+          sale.customerEmail,
+          sale.salePrice,
+          sale.saleDate
+        );
+      } catch (custErr) {
+        console.warn('No se pudo actualizar el cliente (la venta sí se guardó):', custErr);
+      }
+
+      const [freshSales, freshCustomers] = await Promise.all([
+        firebaseSales.getAll(),
+        firebaseCustomers.getAll(),
+      ]);
+      setSales(freshSales);
+      setCustomers(freshCustomers);
+      setEditingSale(null);
+      setActiveTab('sales');
     } catch (error) {
       console.error('Error guardando venta:', error);
-      alert('Error al guardar la venta. Intenta de nuevo.');
+      alert('Error al guardar la venta. Revisa tu conexión e intenta de nuevo.');
     }
   };
 
   const handleDeleteSale = async (id: string) => {
     try {
+      // Guardar datos antes de eliminar para revertir el inventario
+      const saleToDelete = sales.find(s => s.id === id);
       await firebaseSales.delete(id);
-      const updatedSales = await firebaseSales.getAll();
+
+      // Regresar el dispositivo a inventario (vuelve a estar disponible para vender)
+      if (saleToDelete?.deviceId) {
+        const allDevices = await firebaseDevices.getAll();
+        const idx = allDevices.findIndex(d => d.id === saleToDelete.deviceId);
+        if (idx !== -1) {
+          const restored: Device = {
+            ...allDevices[idx],
+            status: 'in_stock',
+            salePrice: undefined,
+            saleDate: undefined,
+          };
+          await firebaseDevices.update(restored);
+          setDevices(await firebaseDevices.getAll());
+        }
+      }
+
+      // Recalcular las estadísticas reales del cliente tras eliminar la venta
+      if (saleToDelete) {
+        try {
+          await firebaseCustomers.recordPurchase(
+            saleToDelete.customerName,
+            saleToDelete.customerPhone,
+            saleToDelete.customerEmail,
+            saleToDelete.salePrice,
+            saleToDelete.saleDate
+          );
+        } catch (custErr) {
+          console.warn('No se pudo recalcular el cliente tras eliminar la venta:', custErr);
+        }
+      }
+
+      const [updatedSales, updatedCustomers] = await Promise.all([
+        firebaseSales.getAll(),
+        firebaseCustomers.getAll(),
+      ]);
       setSales(updatedSales);
+      setCustomers(updatedCustomers);
     } catch (error) {
       console.error('Error eliminando venta:', error);
       alert('Error al eliminar la venta. Intenta de nuevo.');

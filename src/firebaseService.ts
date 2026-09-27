@@ -6,6 +6,7 @@ import {
   addDoc, 
   updateDoc, 
   deleteDoc, 
+  getDoc,
   query, 
   orderBy,
   where,
@@ -93,17 +94,43 @@ export const firebaseSales = {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docToData);
   },
-  
+
+  // Buscar una venta por su deviceId en Firestore (sin depender del estado local)
+  findByDeviceId: async (deviceId: string): Promise<Sale | null> => {
+    try {
+      const qImei = query(collection(db, 'sales'), where('deviceId', '==', deviceId));
+      const snap = await getDocs(qImei);
+      if (!snap.empty) return docToData(snap.docs[0]) as Sale;
+    } catch {
+      // Si falla la consulta indexada, usar escaneo simple
+      const all = await firebaseSales.getAll();
+      const found = all.find(s => s.deviceId === deviceId);
+      return found ?? null;
+    }
+    return null;
+  },
+
   add: async (sale: Sale): Promise<void> => {
     const { id, ...data } = sale;
-    await addDoc(collection(db, 'sales'), data);
+    // Usar setDoc con el id explícito para que sea idempotente: si un intento
+    // anterior quedó a mitad del proceso, reintentar no duplica la venta.
+    await setDoc(doc(db, 'sales', id), data);
   },
-  
+
   update: async (sale: Sale): Promise<void> => {
     const { id, ...data } = sale;
-    await updateDoc(doc(db, 'sales', id), data);
+    try {
+      await updateDoc(doc(db, 'sales', id), data);
+    } catch (err: any) {
+      // Si el documento no existe (p.ej. ventas antiguas o intento fallido), crearlo
+      if (err?.code === 'not-found' || err?.message?.includes('not found')) {
+        await setDoc(doc(db, 'sales', id), data);
+      } else {
+        throw err;
+      }
+    }
   },
-  
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'sales', id));
   }
@@ -188,8 +215,8 @@ export const firebaseCustomers = {
     // Buscar si ya existe por teléfono o nombre
     const q = query(collection(db, 'customers'));
     const snapshot = await getDocs(q);
-    const existing = snapshot.docs.find(doc => 
-      doc.data().phone === customer.phone || doc.data().name === customer.name
+    const existing = snapshot.docs.find(d => 
+      d.data().phone === customer.phone || d.data().name === customer.name
     );
     
     const { id, ...data } = customer;
@@ -198,6 +225,53 @@ export const firebaseCustomers = {
       await updateDoc(doc(db, 'customers', existing.id), data);
     } else {
       await addDoc(collection(db, 'customers'), data);
+    }
+  },
+
+  // Registrar una compra SIN inflar contadores: las estadísticas del cliente
+  // (compras totales / total gastado) se recalculan desde sus ventas reales.
+  // Esto corrige el bug que sumaba compras repetidas aunque la venta no se guardara.
+  recordPurchase: async (name: string, phone: string, email: string | undefined, saleAmount: number, saleDate: string): Promise<void> => {
+    const snapshot = await getDocs(query(collection(db, 'customers')));
+    const existing = snapshot.docs.find(d =>
+      d.data().phone === phone || d.data().name === name
+    );
+
+    if (existing) {
+      const data = existing.data();
+      // Reconstruir historial real de compras desde Firestore
+      const salesSnapshot = await getDocs(query(collection(db, 'sales')));
+      const customerSales = salesSnapshot.docs
+        .map(docToData)
+        .filter((s: any) => s.customerPhone === phone || s.customerName === name);
+
+      const dates = customerSales.map((s: any) => s.saleDate).filter(Boolean).sort();
+      const lastSale = customerSales.sort((a: any, b: any) =>
+        String(b.saleDate).localeCompare(String(a.saleDate))
+      )[0];
+
+      const totalPurchases = customerSales.length;
+      const totalSpent = customerSales.reduce((sum: number, s: any) => sum + (Number(s.salePrice) || 0), 0);
+
+      await updateDoc(existing.ref, {
+        name,
+        phone,
+        email: email || data.email || undefined,
+        totalPurchases,
+        totalSpent,
+        firstPurchaseDate: dates[0] || saleDate,
+        lastPurchaseDate: lastSale?.saleDate || saleDate,
+      });
+    } else {
+      await addDoc(collection(db, 'customers'), {
+        name,
+        phone,
+        email: email || undefined,
+        totalPurchases: 1,
+        totalSpent: saleAmount,
+        firstPurchaseDate: saleDate,
+        lastPurchaseDate: saleDate,
+      });
     }
   },
   
