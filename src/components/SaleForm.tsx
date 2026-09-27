@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Sale, Device, Lot, Customer } from '../types';
-import { generateId, formatCurrency, getCustomers, addOrUpdateCustomer } from '../store';
+import { generateId, formatCurrency } from '../store';
 import CustomerSelector from './CustomerSelector';
 
 interface Props {
@@ -21,8 +21,13 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
   const [paymentMethod, setPaymentMethod] = useState('');
   const [notes, setNotes] = useState('');
   const [showCustomerSelector, setShowCustomerSelector] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  const availableDevices = devices.filter(d => d.status !== 'sold');
+  // Dispositivos disponibles: los ya vendidos no pueden volver a venderse.
+  // Al editar una venta, el dispositivo de esa venta debe seguir apareciendo.
+  const availableDevices = devices.filter(d =>
+    d.status !== 'sold' || (editingSale && d.id === editingSale.deviceId)
+  );
 
   useEffect(() => {
     if (editingSale) {
@@ -49,11 +54,29 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDevice) return;
+    setFormError('');
 
-    // Save customer
-    addOrUpdateCustomer(customerName, customerPhone, customerEmail || undefined, parseFloat(salePrice) || 0, saleDate);
+    if (!selectedDevice) {
+      setFormError('Debes seleccionar un dispositivo antes de registrar la venta.');
+      return;
+    }
+    if (!customerName.trim()) {
+      setFormError('El nombre del cliente es obligatorio.');
+      return;
+    }
+    if (!customerPhone.trim()) {
+      setFormError('El teléfono del cliente es obligatorio.');
+      return;
+    }
+    const priceNum = parseFloat(salePrice);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      setFormError('Ingresa un precio de venta válido (mayor a 0).');
+      return;
+    }
 
+    // La compra del cliente se registra en App.tsx DESPUÉS de guardar la venta
+    // correctamente, recalculando sus estadísticas desde ventas reales.
+    // Así evitamos que queden "compras fantasma" si algo falla aquí.
     const sale: Sale = {
       id: editingSale?.id || generateId(),
       deviceId,
@@ -63,10 +86,10 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
       storage: selectedDevice.storage,
       lotId: selectedDevice.lotId,
       saleDate,
-      salePrice: parseFloat(salePrice) || 0,
-      customerName,
-      customerPhone,
-      customerEmail: customerEmail || undefined,
+      salePrice: priceNum,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      customerEmail: customerEmail.trim() || undefined,
       paymentMethod: paymentMethod || undefined,
       notes,
     };
@@ -340,6 +363,11 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
 
         {/* Submit */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          {formError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-medium">
+              ⚠️ {formError}
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <button
               type="submit"
