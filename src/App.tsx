@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, TabType } from './types';
+import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, Part, TabType } from './types';
 import {
   getDevices, saveDevices, getLots, saveLots,
   getSales, saveSales, getQualityChecks, saveQualityChecks,
@@ -12,11 +12,13 @@ import {
   generateId,
   getCustomers, deleteCustomer,
   getRepairs, addRepair, updateRepair, deleteRepair,
-  getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense
+  getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense,
+  getParts
 } from './store';
-import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals } from './firebaseService';
+import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals, firebaseParts } from './firebaseService';
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
+import Parts from './components/Parts';
 import Lots from './components/Lots';
 import DeviceForm from './components/DeviceForm';
 import LotForm from './components/LotForm';
@@ -43,6 +45,7 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [repairs, setRepairs] = useState<Repair[]>([]);
   const [monthlyExpenses, setMonthlyExpenses] = useState<MonthlyExpense[]>([]);
+  const [parts, setParts] = useState<Part[]>([]);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [editingLot, setEditingLot] = useState<Lot | null>(null);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
@@ -58,7 +61,7 @@ export default function App() {
       try {
         console.log('🔄 Cargando datos desde Firebase...');
         
-        const [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData] = await Promise.all([
+        const [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData, partsData] = await Promise.all([
           firebaseDevices.getAll(),
           firebaseLots.getAll(),
           firebaseSales.getAll(),
@@ -66,7 +69,8 @@ export default function App() {
           firebaseSlots.getAll(),
           firebaseCustomers.getAll(),
           firebaseRepairs.getAll(),
-          firebaseExpenses.getAll()
+          firebaseExpenses.getAll(),
+          firebaseParts.getAll()
         ]);
         
         console.log('✅ Datos cargados desde Firebase:', {
@@ -77,7 +81,8 @@ export default function App() {
           slots: slotsData.length,
           customers: customersData.length,
           repairs: repairsData.length,
-          expenses: expensesData.length
+          expenses: expensesData.length,
+          parts: partsData.length
         });
         
         setDevices(devicesData);
@@ -88,6 +93,7 @@ export default function App() {
         setCustomers(customersData);
         setRepairs(repairsData);
         setMonthlyExpenses(expensesData);
+        setParts(partsData);
       } catch (error) {
         console.error('❌ Error cargando datos desde Firebase:', error);
         // Fallback a localStorage si Firebase falla
@@ -100,6 +106,7 @@ export default function App() {
         setCustomers(getCustomers());
         setRepairs(getRepairs());
         setMonthlyExpenses(getMonthlyExpenses());
+        setParts(getParts());
       }
     };
     
@@ -491,6 +498,33 @@ export default function App() {
     }
   };
 
+  // Part (Refacciones) handlers
+  const handleSavePart = async (part: Part) => {
+    try {
+      if (parts.some(p => p.id === part.id)) {
+        await firebaseParts.update(part);
+      } else {
+        await firebaseParts.add(part);
+      }
+      const updatedParts = await firebaseParts.getAll();
+      setParts(updatedParts);
+    } catch (error) {
+      console.error('Error guardando refacción:', error);
+      alert('Error al guardar la refacción. Intenta de nuevo.');
+    }
+  };
+
+  const handleDeletePart = async (id: string) => {
+    try {
+      await firebaseParts.delete(id);
+      const updatedParts = await firebaseParts.getAll();
+      setParts(updatedParts);
+    } catch (error) {
+      console.error('Error eliminando refacción:', error);
+      alert('Error al eliminar la refacción. Intenta de nuevo.');
+    }
+  };
+
   const pendingSlots = slots.filter(s => !s.checked);
   const checkingLot = checkingLotId ? lots.find(l => l.id === checkingLotId) : null;
   const checkingLotSlots = checkingLotId ? slots.filter(s => s.lotId === checkingLotId) : [];
@@ -498,6 +532,7 @@ export default function App() {
   const navItems = [
     { id: 'dashboard' as TabType, label: 'Dashboard', icon: '📊' },
     { id: 'inventory' as TabType, label: 'Inventario', icon: '📱' },
+    { id: 'parts' as TabType, label: 'Refacciones', icon: '🔧' },
     { id: 'lots' as TabType, label: 'Lotes', icon: '📦' },
     { id: 'sales' as TabType, label: 'Ventas', icon: '💰' },
     { id: 'financial' as TabType, label: 'Análisis Financiero', icon: '📈' },
@@ -507,6 +542,7 @@ export default function App() {
     { id: 'quality-check' as TabType, label: 'Historial Chequeo', icon: '📋' },
     { id: 'add-lot' as TabType, label: 'Nuevo Lote', icon: '🏷️' },
     { id: 'add-device' as TabType, label: 'Nuevo Dispositivo', icon: '➕' },
+    { id: 'add-part' as TabType, label: 'Nueva Refacción', icon: '🔩' },
     { id: 'add-sale' as TabType, label: 'Nueva Venta', icon: '🛒' },
     { id: 'add-repair' as TabType, label: 'Nueva Reparación', icon: '🔨' },
   ];
@@ -531,7 +567,9 @@ export default function App() {
       case 'dashboard':
         return <Dashboard devices={devices} lots={lots} sales={sales} checks={checks} customers={customers} />;
       case 'inventory':
-        return <Inventory devices={devices} lots={lots} onEdit={handleEditDevice} onDelete={handleDeleteDevice} />;
+        return <Inventory devices={devices} lots={lots} parts={parts} onEdit={handleEditDevice} onDelete={handleDeleteDevice} onSavePart={handleSavePart} onDeletePart={handleDeletePart} />;
+      case 'parts':
+        return <Parts parts={parts} onSave={handleSavePart} onDelete={handleDeletePart} />;
       case 'lots':
         return <Lots lots={lots} devices={devices} slots={slots} onEdit={handleEditLot} onDelete={handleDeleteLot} onCheckLot={handleCheckLot} />;
       case 'sales':
@@ -573,6 +611,8 @@ export default function App() {
         return <LotForm onSave={handleSaveLot} editingLot={editingLot} onCancel={() => { setEditingLot(null); setActiveTab('lots'); }} />;
       case 'add-sale':
         return <SaleForm devices={devices} lots={lots} onSave={handleSaveSale} editingSale={editingSale} onCancel={() => { setEditingSale(null); setActiveTab('sales'); }} />;
+      case 'add-part':
+        return <Parts parts={parts} onSave={handleSavePart} onDelete={handleDeletePart} />;
       case 'add-repair':
         return <RepairForm onSave={handleSaveRepair} editingRepair={editingRepair} onCancel={() => { setEditingRepair(null); setActiveTab('repairs'); }} />;
       case 'add-check':
@@ -677,6 +717,13 @@ export default function App() {
                 >
                   <span>+</span>
                   <span className="hidden sm:inline">Dispositivo</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('parts')}
+                  className="px-2.5 sm:px-3 py-2 bg-orange-500 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1"
+                >
+                  <span>🔩</span>
+                  <span className="hidden sm:inline">Refacción</span>
                 </button>
                 <button
                   onClick={() => { setActiveTab('add-sale'); setEditingSale(null); }}

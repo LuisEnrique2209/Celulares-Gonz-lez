@@ -442,3 +442,43 @@ export function getMonthlyGoalByMonth(month: string): MonthlyGoal | undefined {
   const goals = getMonthlyGoals();
   return goals.find(g => g.month === month);
 }
+
+// Parts (Refacciones: baterías, pantallas, etc.)
+import { Part } from './types';
+
+const PARTS_KEY = 'iphone_tracker_parts';
+
+export function getParts(): Part[] {
+  const data = localStorage.getItem(PARTS_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+export function saveParts(parts: Part[]): void {
+  localStorage.setItem(PARTS_KEY, JSON.stringify(parts));
+}
+
+export function addPart(part: Part): void {
+  const parts = getParts();
+  parts.push(part);
+  saveParts(parts);
+}
+
+export function updatePart(part: Part): void {
+  const parts = getParts();
+  const index = parts.findIndex(p => p.id === part.id);
+  if (index !== -1) {
+    parts[index] = part;
+    saveParts(parts);
+  }
+}
+
+export function deletePart(id: string): void {
+  const parts = getParts().filter(p => p.id !== id);
+  saveParts(parts);
+}
+
+export const PART_CATEGORY_LABELS: Record<string, string> = {
+  battery: 'Batería',
+  screen: 'Pantalla',
+  other: 'Otra',
+};

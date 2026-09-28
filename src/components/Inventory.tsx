@@ -1,15 +1,20 @@
 import { useState } from 'react';
-import { Device, Lot } from '../types';
+import { Device, Lot, Part } from '../types';
 import { formatCurrency, formatDate, IPHONE_MODELS } from '../store';
+import Parts from './Parts';
 
 interface Props {
   devices: Device[];
   lots: Lot[];
+  parts?: Part[];
   onEdit: (device: Device) => void;
   onDelete: (id: string) => void;
+  onSavePart?: (part: Part) => void;
+  onDeletePart?: (id: string) => void;
 }
 
-export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
+export default function Inventory({ devices, lots, parts = [], onEdit, onDelete, onSavePart, onDeletePart }: Props) {
+  const [view, setView] = useState<'devices' | 'parts'>('devices');
   const [search, setSearch] = useState('');
   const [filterModel, setFilterModel] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -74,10 +79,49 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
     );
   };
 
+  // Vista de refacciones dentro de la pestaña de inventario
+  if (view === 'parts' && onSavePart && onDeletePart) {
+    return (
+      <div className="space-y-6">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setView('devices')}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+          >
+            📱 iPhones
+          </button>
+          <button
+            onClick={() => setView('parts')}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white shadow-sm"
+          >
+            🔩 Refacciones
+          </button>
+        </div>
+        <Parts parts={parts} onSave={onSavePart} onDelete={onDeletePart} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Inventario</h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-3xl font-bold text-gray-900">Inventario</h1>
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setView('devices')}
+              className="px-3 py-1.5 rounded-md text-sm font-semibold bg-white text-gray-900 shadow-sm"
+            >
+              📱 iPhones
+            </button>
+            <button
+              onClick={() => setView('parts')}
+              className="px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700"
+            >
+              🔩 Refacciones{parts.length > 0 ? ` (${parts.length})` : ''}
+            </button>
+          </div>
+        </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
             <p className="text-xs text-gray-500">Total en sistema</p>

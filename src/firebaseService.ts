@@ -299,3 +299,28 @@ export const firebaseMeta = {
     await updateDoc(doc(db, 'meta', 'reviewers'), { list: reviewers });
   }
 };
+
+// ============ PARTS (Refacciones) ============
+import { Part } from './types';
+
+export const firebaseParts = {
+  getAll: async (): Promise<Part[]> => {
+    const q = query(collection(db, 'parts'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docToData);
+  },
+
+  add: async (part: Part): Promise<void> => {
+    const { id, ...data } = part;
+    await setDoc(doc(db, 'parts', id), data);
+  },
+
+  update: async (part: Part): Promise<void> => {
+    const { id, ...data } = part;
+    await updateDoc(doc(db, 'parts', id), data);
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await deleteDoc(doc(db, 'parts', id));
+  }
+};

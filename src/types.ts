@@ -163,4 +163,22 @@ export interface QualityCheck {
   checkedBy: string;
 }
 
-export type TabType = 'dashboard' | 'inventory' | 'lots' | 'sales' | 'financial' | 'customers' | 'repairs' | 'goals' | 'quality-check' | 'add-device' | 'add-lot' | 'add-sale' | 'add-check' | 'add-repair' | 'check-lot';
+// Refacciones (baterías, pantallas, etc.)
+export type PartCategory = 'battery' | 'screen' | 'other';
+
+export interface Part {
+  id: string;
+  name: string;
+  category: PartCategory;
+  model: string; // iPhone al que es compatible (ej. 'iPhone 13')
+  sku?: string;
+  supplier?: string;
+  quantity: number;
+  minStock: number; // existencia mínima recomendada
+  costPrice: number; // costo unitario (MXN)
+  salePrice: number; // precio de venta / mano de obra incluida (MXN)
+  purchaseDate: string;
+  notes?: string;
+}
+
+export type TabType = 'dashboard' | 'inventory' | 'parts' | 'add-part' | 'lots' | 'sales' | 'financial' | 'customers' | 'repairs' | 'goals' | 'quality-check' | 'add-device' | 'add-lot' | 'add-sale' | 'add-check' | 'add-repair' | 'check-lot';
