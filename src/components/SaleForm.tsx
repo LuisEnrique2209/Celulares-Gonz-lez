@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Sale, Device, Lot, Customer } from '../types';
-import { generateId, formatCurrency, getCustomers, addOrUpdateCustomer } from '../store';
+import { Sale, Device, Lot, Customer, Part, SoldPartItem, PartCategory } from '../types';
+import { generateId, formatCurrency, getCustomers, addOrUpdateCustomer, getParts, applyPartsSale, restorePartsStock, PART_CATEGORY_LABELS } from '../store';
+
+const categoryIcon = (c: PartCategory) => c === 'battery' ? '🔋' : c === 'screen' ? '📱' : '🔩';
 import CustomerSelector from './CustomerSelector';
 
 interface Props {
@@ -22,7 +24,17 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
   const [notes, setNotes] = useState('');
   const [showCustomerSelector, setShowCustomerSelector] = useState(false);
 
+  // Refacciones vendidas en esta venta
+  const [allParts, setAllParts] = useState<Part[]>([]);
+  const [soldParts, setSoldParts] = useState<SoldPartItem[]>([]);
+  const [partToAdd, setPartToAdd] = useState('');
+  const [partQty, setPartQty] = useState('1');
+
   const availableDevices = devices.filter(d => d.status !== 'sold');
+
+  useEffect(() => {
+    setAllParts(getParts());
+  }, []);
 
   useEffect(() => {
     if (editingSale) {
@@ -34,8 +46,58 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
       setCustomerEmail(editingSale.customerEmail || '');
       setPaymentMethod(editingSale.paymentMethod || '');
       setNotes(editingSale.notes);
+      setSoldParts(editingSale.soldParts || []);
+    } else {
+      setSoldParts([]);
     }
   }, [editingSale]);
+
+  // Stock disponible considerando lo reservado por la venta que estoy editando
+  const reservedInEditing = new Map((editingSale?.soldParts || []).map(p => [p.partId, p.quantity]));
+
+  const addPartToSale = () => {
+    const part = allParts.find(p => p.id === partToAdd);
+    if (!part) return;
+    const qty = Math.max(1, parseInt(partQty) || 1);
+    const already = soldParts.find(s => s.partId === part.id)?.quantity || 0;
+    const maxAvail = part.quantity + (editingSale ? (reservedInEditing.get(part.id) || 0) : 0);
+    if (already + qty > maxAvail) {
+      alert(`Solo hay ${Math.max(0, maxAvail - already)} unidad(es) disponibles de "${part.name}"`);
+      return;
+    }
+    if (already > 0) {
+      setSoldParts(soldParts.map(s => s.partId === part.id ? { ...s, quantity: s.quantity + qty } : s));
+    } else {
+      setSoldParts([...soldParts, {
+        partId: part.id,
+        name: part.name,
+        category: part.category,
+        model: part.model,
+        quantity: qty,
+        unitCost: part.costPrice,
+        unitPrice: part.salePrice,
+      }]);
+    }
+    setPartToAdd('');
+    setPartQty('1');
+  };
+
+  const removePartFromSale = (partId: string) => {
+    setSoldParts(soldParts.filter(s => s.partId !== partId));
+  };
+
+  const updatePartQtyInSale = (partId: string, qty: number) => {
+    if (qty < 1) { removePartFromSale(partId); return; }
+    const part = allParts.find(p => p.id === partId);
+    const current = soldParts.find(s => s.partId === partId)?.quantity || 0;
+    const maxAvail = part ? part.quantity + current + (editingSale ? (reservedInEditing.get(partId) || 0) : 0) : 0;
+    if (qty > maxAvail) { alert(`No hay suficiente stock de "${part?.name}" (máx: ${maxAvail})`); return; }
+    setSoldParts(soldParts.map(s => s.partId === partId ? { ...s, quantity: qty } : s));
+  };
+
+  // Totales de refacciones
+  const partsRevenue = soldParts.reduce((sum, p) => sum + p.unitPrice * p.quantity, 0);
+  const partsCost = soldParts.reduce((sum, p) => sum + p.unitCost * p.quantity, 0);
 
   const selectedDevice = devices.find(d => d.id === deviceId);
 
@@ -44,15 +106,35 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
     ? selectedDevice.purchasePrice + selectedDevice.importExpenses + selectedDevice.shippingExpenses + selectedDevice.otherExpenses
     : 0;
   const salePriceNum = parseFloat(salePrice) || 0;
-  const profit = salePriceNum - deviceCost;
-  const profitMargin = deviceCost > 0 ? (profit / deviceCost) * 100 : 0;
+  const totalRevenue = salePriceNum + partsRevenue;
+  const totalCost = deviceCost + partsCost;
+  const profit = totalRevenue - totalCost;
+  const profitMargin = totalCost > 0 ? (profit / totalCost) * 100 : 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDevice) return;
 
-    // Save customer
-    addOrUpdateCustomer(customerName, customerPhone, customerEmail || undefined, parseFloat(salePrice) || 0, saleDate);
+    // Validar y descontar existencias de refacciones
+    if (editingSale) {
+      for (const item of soldParts) {
+        const part = getParts().find(p => p.id === item.partId);
+        const prevReserved = reservedInEditing.get(item.partId) || 0;
+        const avail = (part?.quantity || 0) + prevReserved;
+        if (!part || item.quantity > avail) {
+          alert(`Stock insuficiente de "${item.name}". Disponible: ${Math.max(0, avail)}`);
+          return;
+        }
+      }
+    } else if (soldParts.length > 0) {
+      if (!applyPartsSale(soldParts)) {
+        alert('El stock de alguna refacción no es suficiente. Revisa el inventario.');
+        return;
+      }
+    }
+
+    // Save customer (incluye refacciones en el total gastado)
+    addOrUpdateCustomer(customerName, customerPhone, customerEmail || undefined, totalRevenue, saleDate);
 
     const sale: Sale = {
       id: editingSale?.id || generateId(),
@@ -64,6 +146,8 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
       lotId: selectedDevice.lotId,
       saleDate,
       salePrice: parseFloat(salePrice) || 0,
+      partsRevenue: partsRevenue > 0 ? partsRevenue : undefined,
+      soldParts: soldParts.length > 0 ? soldParts : undefined,
       customerName,
       customerPhone,
       customerEmail: customerEmail || undefined,
@@ -192,9 +276,11 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-gray-600">Precio de Venta</p>
-                      <p className="text-lg font-semibold text-gray-900">${salePriceNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
-                      <p className="text-xs text-gray-500">- Costo: ${deviceCost.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
+                      <p className="text-xs text-gray-600">Total Cobrado</p>
+                      <p className="text-lg font-semibold text-gray-900">${totalRevenue.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
+                      <p className="text-xs text-gray-500">Teléfono: ${salePriceNum.toLocaleString('es-MX')}</p>
+                      {partsRevenue > 0 && <p className="text-xs text-orange-600">Refacciones: ${partsRevenue.toLocaleString('es-MX')}</p>}
+                      <p className="text-xs text-gray-500">- Costo total: ${totalCost.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
                     </div>
                   </div>
                 </div>
@@ -245,6 +331,86 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
               </select>
             </div>
           </div>
+        </div>
+
+        {/* Refacciones vendidas */}
+        <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-1">🔧 Refacciones (baterías, pantallas, etc.)</h3>
+          <p className="text-xs text-gray-500 mb-4">Agrega refacciones que se venden o instalan en esta venta. El stock se descuenta automáticamente del inventario de refacciones.</p>
+
+          {allParts.length === 0 ? (
+            <div className="text-center py-4 bg-yellow-50 rounded-lg border border-yellow-200">
+              <p className="text-yellow-800 text-sm font-medium">Aún no tienes refacciones registradas</p>
+              <p className="text-xs text-yellow-700 mt-1">Ve a Inventario → 🔩 Refacciones para dar de alta baterías y pantallas</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_100px_auto] gap-3 items-end">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Refacción disponible</label>
+                  <select
+                    value={partToAdd}
+                    onChange={e => setPartToAdd(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  >
+                    <option value="">Seleccionar refacción</option>
+                    {allParts.filter(p => p.quantity + (editingSale ? (reservedInEditing.get(p.id) || 0) : 0) > (soldParts.find(s => s.partId === p.id)?.quantity || 0)).map(p => (
+                      <option key={p.id} value={p.id}>
+                        {categoryIcon(p.category)} {p.name} ({PART_CATEGORY_LABELS[p.category]} · {p.model}) — {p.quantity + (editingSale ? (reservedInEditing.get(p.id) || 0) : 0)} disp. · ${p.salePrice.toLocaleString('es-MX')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={partQty}
+                    onChange={e => setPartQty(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={addPartToSale}
+                  disabled={!partToAdd}
+                  className="px-4 py-2 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-40"
+                >
+                  + Agregar
+                </button>
+              </div>
+
+              {soldParts.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {soldParts.map(sp => (
+                    <div key={sp.partId} className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-4 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xl">{categoryIcon(sp.category)}</span>
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">{sp.name}</p>
+                          <p className="text-xs text-gray-600">{sp.model} · ${sp.unitPrice.toLocaleString('es-MX')} c/u</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => updatePartQtyInSale(sp.partId, sp.quantity - 1)} className="w-7 h-7 rounded-full bg-white border border-orange-300 text-orange-700 font-bold hover:bg-orange-100">−</button>
+                          <span className="w-8 text-center text-sm font-bold text-gray-900">{sp.quantity}</span>
+                          <button type="button" onClick={() => updatePartQtyInSale(sp.partId, sp.quantity + 1)} className="w-7 h-7 rounded-full bg-white border border-orange-300 text-orange-700 font-bold hover:bg-orange-100">+</button>
+                        </div>
+                        <span className="text-sm font-bold text-orange-700 w-24 text-right">${(sp.unitPrice * sp.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                        <button type="button" onClick={() => removePartFromSale(sp.partId)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between pt-2 border-t border-orange-200">
+                    <span className="text-sm font-semibold text-gray-700">Subtotal refacciones:</span>
+                    <span className="text-base font-bold text-orange-700">${partsRevenue.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Customer Info */}

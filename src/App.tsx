@@ -13,7 +13,8 @@ import {
   getCustomers, deleteCustomer,
   getRepairs, addRepair, updateRepair, deleteRepair,
   getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense,
-  getParts, saveParts, addPart, updatePart, deletePart
+  getParts, saveParts, addPart, updatePart, deletePart,
+  applyPartsSale, restorePartsStock
 } from './store';
 import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals, firebaseParts } from './firebaseService';
 import Dashboard from './components/Dashboard';
@@ -307,6 +308,30 @@ export default function App() {
   // Sale handlers
   const handleSaveSale = async (sale: Sale) => {
     try {
+      // Descuentas de refacciones para ventas nuevas (ya validadas en el formulario)
+      let syncedParts: Part[] | null = null;
+      if (!editingSale && sale.soldParts && sale.soldParts.length > 0) {
+        applyPartsSale(sale.soldParts);
+        syncedParts = getParts();
+      }
+      // Si se edita una venta que ya tenía refacciones, recalcular la diferencia de stock
+      if (editingSale) {
+        const prev = editingSale.soldParts || [];
+        const next = sale.soldParts || [];
+        const changes = new Map<string, number>();
+        prev.forEach(p => changes.set(p.partId, -(p.quantity)));
+        next.forEach(p => changes.set(p.partId, (changes.get(p.partId) || 0) + p.quantity));
+        const delta = Array.from(changes.entries())
+          .filter(([, d]) => d !== 0)
+          .map(([partId, d]) => ({ partId, restoreQty: -d })); // positivo = devolver stock, negativo = descontar
+        if (delta.length > 0) {
+          const toRestore = delta.filter(x => x.restoreQty > 0).map(x => ({ partId: x.partId, name: '', category: 'other' as const, model: '', quantity: x.restoreQty, unitCost: 0, unitPrice: 0 }));
+          const toDeduct = delta.filter(x => x.restoreQty < 0).map(x => ({ partId: x.partId, name: '', category: 'other' as const, model: '', quantity: -x.restoreQty, unitCost: 0, unitPrice: 0 }));
+          if (toRestore.length > 0) restorePartsStock(toRestore);
+          if (toDeduct.length > 0) applyPartsSale(toDeduct);
+          syncedParts = getParts();
+        }
+      }
       if (editingSale) {
         await firebaseSales.update(sale);
         setEditingSale(null);
@@ -314,6 +339,12 @@ export default function App() {
       } else {
         await firebaseSales.add(sale);
         setLastSaleForPolicy(sale);
+      }
+      // Sincronizar stock de refacciones en la nube
+      if (syncedParts) {
+        try {
+          for (const p of syncedParts) { await firebaseParts.update(p); }
+        } catch (e) { console.error('Error sincronizando refacciones en la nube:', e); }
       }
       // Update device status to sold
       const updatedDevices = await firebaseDevices.getAll();
@@ -340,6 +371,13 @@ export default function App() {
 
   const handleDeleteSale = async (id: string) => {
     try {
+      const deleted = sales.find(s => s.id === id);
+      if (deleted?.soldParts && deleted.soldParts.length > 0) {
+        restorePartsStock(deleted.soldParts);
+        try {
+          for (const p of getParts()) { await firebaseParts.update(p); }
+        } catch (e) { console.error('Error restaurando refacciones en la nube:', e); }
+      }
       await firebaseSales.delete(id);
       const updatedSales = await firebaseSales.getAll();
       setSales(updatedSales);

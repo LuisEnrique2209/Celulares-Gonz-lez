@@ -1,16 +1,10 @@
+nohup: ignoring input
 
 > dev
-> vite --host 0.0.0.0 --port 5173
+> vite
 
 
-  VITE v6.4.3  ready in 586 ms
+  VITE v6.4.3  ready in 615 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: http://21.0.7.22:5173/
-4:12:16 PM [vite] (client) page reload src/types.ts
-4:12:19 PM [vite] (client) page reload src/types.ts
-4:12:27 PM [vite] (client) page reload src/types.ts
-4:12:37 PM [vite] (client) page reload src/types.ts
-4:12:56 PM [vite] (client) hmr update /src/index.css, /src/App.tsx, /src/components/Dashboard.tsx, /src/components/RepairForm.tsx, /src/components/LotForm.tsx, /src/components/Sales.tsx, /src/components/Parts.tsx, /src/components/SaleForm.tsx, /src/components/Lots.tsx, /src/components/DeviceForm.tsx, /src/components/Inventory.tsx, /src/components/Customers.tsx, /src/components/QualityChecks.tsx, /src/components/QualityCheckForm.tsx, /src/components/Policy.tsx, /src/components/FinancialAnalysis.tsx, /src/components/CheckLot.tsx, /src/components/Repairs.tsx, /src/components/Goals.tsx, /src/components/CustomerSelector.tsx, /src/components/SupplierSelector.tsx, /src/components/MonthlyExpenseForm.tsx
-4:13:03 PM [vite] (client) hmr update /src/index.css, /src/App.tsx, /src/components/Dashboard.tsx, /src/components/RepairForm.tsx, /src/components/LotForm.tsx, /src/components/Sales.tsx, /src/components/Parts.tsx, /src/components/SaleForm.tsx, /src/components/Lots.tsx, /src/components/DeviceForm.tsx, /src/components/Inventory.tsx, /src/components/Customers.tsx, /src/components/QualityChecks.tsx, /src/components/QualityCheckForm.tsx, /src/components/Policy.tsx, /src/components/FinancialAnalysis.tsx, /src/components/CheckLot.tsx, /src/components/Repairs.tsx, /src/components/Goals.tsx, /src/components/CustomerSelector.tsx, /src/components/SupplierSelector.tsx, /src/components/MonthlyExpenseForm.tsx
-4:13:37 PM [vite] (client) hmr update /src/index.css, /src/App.tsx

@@ -1,2 +1,8 @@
-# Logs and temp files
+# Build artifacts
+dist/
+
+# Logs
 *.log
+
+# Archives
+*.zip
