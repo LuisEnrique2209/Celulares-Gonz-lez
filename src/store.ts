@@ -444,7 +444,7 @@ export function getMonthlyGoalByMonth(month: string): MonthlyGoal | undefined {
 }
 
 // Parts (Refacciones: baterías, pantallas, etc.)
-import { Part } from './types';
+import { Part, SoldPartItem } from './types';
 
 const PARTS_KEY = 'iphone_tracker_parts';
 
@@ -482,3 +482,31 @@ export const PART_CATEGORY_LABELS: Record<string, string> = {
   screen: 'Pantalla',
   other: 'Otra',
 };
+
+// Descuenta existencias de refacciones al registrar una venta.
+// Devuelve true si todas las cantidades solicitadas estaban disponibles.
+export function applyPartsSale(soldParts: SoldPartItem[]): boolean {
+  const parts = getParts();
+  // Validar primero (sin mutar) que haya suficiente stock
+  for (const item of soldParts) {
+    const part = parts.find(p => p.id === item.partId);
+    if (!part || part.quantity < item.quantity) return false;
+  }
+  const updated = parts.map(p => {
+    const item = soldParts.find(s => s.partId === p.id);
+    return item ? { ...p, quantity: Math.max(0, p.quantity - item.quantity) } : p;
+  });
+  saveParts(updated);
+  return true;
+}
+
+// Reabastece existencias cuando se elimina una venta con refacciones
+export function restorePartsStock(soldParts?: SoldPartItem[]): void {
+  if (!soldParts || soldParts.length === 0) return;
+  const parts = getParts();
+  const updated = parts.map(p => {
+    const item = soldParts.find(s => s.partId === p.id);
+    return item ? { ...p, quantity: p.quantity + item.quantity } : p;
+  });
+  saveParts(updated);
+}

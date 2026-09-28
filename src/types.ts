@@ -56,6 +56,34 @@ export interface CheckSlot {
   batteryPercentage?: number; // % de batería registrado al checar
   deviceId?: string; // dispositivo creado en inventario al aprobar/rechazar
 }
+// Refacciones (baterías, pantallas, etc.)
+export type PartCategory = 'battery' | 'screen' | 'other';
+
+export interface Part {
+  id: string;
+  name: string;
+  category: PartCategory;
+  model: string; // iPhone al que es compatible (ej. 'iPhone 13')
+  sku?: string;
+  supplier?: string;
+  quantity: number;
+  minStock: number; // existencia mínima recomendada
+  costPrice: number; // costo unitario (MXN)
+  salePrice: number; // precio de venta / mano de obra incluida (MXN)
+  purchaseDate: string;
+  notes?: string;
+}
+
+// Refacción vendida dentro de una venta
+export interface SoldPartItem {
+  partId: string;
+  name: string;
+  category: PartCategory;
+  model: string;
+  quantity: number;
+  unitCost: number; // costo unitario al momento de la venta
+  unitPrice: number; // precio unitario cobrado al cliente
+}
 
 export interface Sale {
   id: string;
@@ -66,7 +94,9 @@ export interface Sale {
   storage: string;
   lotId: string;
   saleDate: string;
-  salePrice: number;
+  salePrice: number; // precio del dispositivo
+  partsRevenue?: number; // suma cobrada por refacciones
+  soldParts?: SoldPartItem[]; // refacciones entregadas en esta venta
   customerName: string;
   customerPhone: string;
   customerEmail?: string;
@@ -161,24 +191,6 @@ export interface QualityCheck {
   overallStatus: 'approved' | 'rejected' | 'pending';
   notes: string;
   checkedBy: string;
-}
-
-// Refacciones (baterías, pantallas, etc.)
-export type PartCategory = 'battery' | 'screen' | 'other';
-
-export interface Part {
-  id: string;
-  name: string;
-  category: PartCategory;
-  model: string; // iPhone al que es compatible (ej. 'iPhone 13')
-  sku?: string;
-  supplier?: string;
-  quantity: number;
-  minStock: number; // existencia mínima recomendada
-  costPrice: number; // costo unitario (MXN)
-  salePrice: number; // precio de venta / mano de obra incluida (MXN)
-  purchaseDate: string;
-  notes?: string;
 }
 
 export type TabType = 'dashboard' | 'inventory' | 'parts' | 'add-part' | 'lots' | 'sales' | 'financial' | 'customers' | 'repairs' | 'goals' | 'quality-check' | 'add-device' | 'add-lot' | 'add-sale' | 'add-check' | 'add-repair' | 'check-lot';
