@@ -96,12 +96,24 @@ export const firebaseSales = {
   
   add: async (sale: Sale): Promise<void> => {
     const { id, ...data } = sale;
-    await addDoc(collection(db, 'sales'), data);
+    // Usar setDoc con el id explícito para que el documento de la venta
+    // tenga el mismo id que sale.id y sea idempotente si se re-intenta
+    // el guardado tras un fallo parcial.
+    await setDoc(doc(db, 'sales', id), data);
   },
-  
+
   update: async (sale: Sale): Promise<void> => {
     const { id, ...data } = sale;
-    await updateDoc(doc(db, 'sales', id), data);
+    try {
+      await updateDoc(doc(db, 'sales', id), data);
+    } catch (err: any) {
+      // Si el documento no existe (ventas antiguas migradas), crearlo con setDoc
+      if (err?.code === 'not-found' || err?.message?.includes('not found')) {
+        await setDoc(doc(db, 'sales', id), data);
+      } else {
+        throw err;
+      }
+    }
   },
   
   delete: async (id: string): Promise<void> => {
@@ -201,6 +213,26 @@ export const firebaseCustomers = {
     }
   },
   
+  // Crear un cliente nuevo con su propio id (setDoc es idempotente)
+  add: async (customer: Customer): Promise<void> => {
+    const { id, ...data } = customer;
+    await setDoc(doc(db, 'customers', id), data);
+  },
+
+  // Actualizar un cliente existente; si el documento no existe, crearlo
+  update: async (customer: Customer): Promise<void> => {
+    const { id, ...data } = customer;
+    try {
+      await updateDoc(doc(db, 'customers', id), data);
+    } catch (err: any) {
+      if (err?.code === 'not-found' || err?.message?.includes('not found')) {
+        await setDoc(doc(db, 'customers', id), data);
+      } else {
+        throw err;
+      }
+    }
+  },
+
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'customers', id));
   }

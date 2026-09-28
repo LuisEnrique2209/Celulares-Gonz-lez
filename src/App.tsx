@@ -88,8 +88,11 @@ export default function App() {
         setCustomers(customersData);
         setRepairs(repairsData);
         setMonthlyExpenses(expensesData);
-      } catch (error) {
+      } catch (error: any) {
         console.error('❌ Error cargando datos desde Firebase:', error);
+        if (error?.code === 'permission-denied') {
+          alert('Firebase rechazó la lectura de datos (reglas de seguridad expiradas o modificadas). Abre la consola de Firebase > Firestore > Reglas y publica: allow read, write: if true;');
+        }
         // Fallback a localStorage si Firebase falla
         console.log('🔄 Usando datos locales como fallback...');
         setDevices(getDevices());
@@ -299,16 +302,28 @@ export default function App() {
 
   // Sale handlers
   const handleSaveSale = async (sale: Sale) => {
+    // 1) Guardar la venta primero (esto es lo crítico)
     try {
       if (editingSale) {
         await firebaseSales.update(sale);
-        setEditingSale(null);
-        setActiveTab('sales');
       } else {
         await firebaseSales.add(sale);
-        setLastSaleForPolicy(sale);
       }
-      // Update device status to sold
+    } catch (error: any) {
+      console.error('Error guardando venta:', error);
+      const code = error?.code || '';
+      const msg =
+        code === 'permission-denied'
+          ? 'Firebase rechazó el guardado (reglas de seguridad). Revisa las Reglas de Firestore en la consola de Firebase y publícalas con "allow read, write: if true;".'
+          : code === 'unavailable'
+          ? 'No hay conexión con Firebase. Verifica tu internet e intenta de nuevo.'
+          : `Error al guardar la venta: ${error?.message || 'desconocido'}. Intenta de nuevo.`;
+      alert(msg);
+      return; // No marcar el dispositivo como vendido si la venta no se guardó
+    }
+
+    // 2) Marcar el dispositivo como vendido (si esto falla, avisar pero no perder la venta)
+    try {
       const updatedDevices = await firebaseDevices.getAll();
       const deviceIndex = updatedDevices.findIndex(d => d.id === sale.deviceId);
       if (deviceIndex !== -1) {
@@ -321,13 +336,28 @@ export default function App() {
         await firebaseDevices.update(updatedDevices[deviceIndex]);
         setDevices(updatedDevices);
       }
-      const updatedSales = await firebaseSales.getAll();
-      const updatedCustomers = await firebaseCustomers.getAll();
+    } catch (error) {
+      console.error('Venta guardada, pero no se pudo actualizar el estado del dispositivo:', error);
+      alert('La venta se guardó correctamente, pero no se pudo marcar el dispositivo como vendido. Vuelve a intentar o edita el inventario manualmente.');
+    }
+
+    // 3) Refrescar listas
+    try {
+      const [updatedSales, updatedCustomers] = await Promise.all([
+        firebaseSales.getAll(),
+        firebaseCustomers.getAll(),
+      ]);
       setSales(updatedSales);
       setCustomers(updatedCustomers);
     } catch (error) {
-      console.error('Error guardando venta:', error);
-      alert('Error al guardar la venta. Intenta de nuevo.');
+      console.warn('No se pudieron refrescar las listas desde Firebase:', error);
+    }
+
+    if (editingSale) {
+      setEditingSale(null);
+      setActiveTab('sales');
+    } else {
+      setLastSaleForPolicy(sale);
     }
   };
 

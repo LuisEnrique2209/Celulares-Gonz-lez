@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Sale, Device, Lot, Customer } from '../types';
-import { generateId, formatCurrency, getCustomers, addOrUpdateCustomer } from '../store';
+import { generateId, formatCurrency } from '../store';
+import { firebaseCustomers } from '../firebaseService';
 import CustomerSelector from './CustomerSelector';
 
 interface Props {
@@ -47,12 +48,58 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
   const profit = salePriceNum - deviceCost;
   const profitMargin = deviceCost > 0 ? (profit / deviceCost) * 100 : 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedDevice) return;
+  // Guardar/actualizar el cliente directamente en Firebase (nube),
+  // acumulando compras solo cuando es una venta NUEVA (no al editar).
+  const saveCustomerToFirebase = async (isNewSale: boolean) => {
+    try {
+      const customers = await firebaseCustomers.getAll();
+      const existing = customers.find(
+        c => c.phone === customerPhone || c.name.toLowerCase() === customerName.trim().toLowerCase()
+      );
 
-    // Save customer
-    addOrUpdateCustomer(customerName, customerPhone, customerEmail || undefined, parseFloat(salePrice) || 0, saleDate);
+      if (existing) {
+        const updated: Customer = { ...existing };
+        if (customerEmail && !updated.email) updated.email = customerEmail;
+        if (isNewSale) {
+          updated.totalPurchases = (updated.totalPurchases || 0) + 1;
+          updated.totalSpent = (updated.totalSpent || 0) + (parseFloat(salePrice) || 0);
+          if (!updated.lastPurchaseDate || saleDate > updated.lastPurchaseDate) {
+            updated.lastPurchaseDate = saleDate;
+          }
+          if (!updated.firstPurchaseDate || saleDate < updated.firstPurchaseDate) {
+            updated.firstPurchaseDate = saleDate;
+          }
+        }
+        await firebaseCustomers.update(updated);
+      } else {
+        const newCustomer: Customer = {
+          id: generateId(),
+          name: customerName.trim(),
+          phone: customerPhone,
+          email: customerEmail || undefined,
+          totalPurchases: 1,
+          totalSpent: parseFloat(salePrice) || 0,
+          firstPurchaseDate: saleDate,
+          lastPurchaseDate: saleDate,
+        };
+        await firebaseCustomers.add(newCustomer);
+      }
+    } catch (err) {
+      // Si falla el guardado del cliente, NO bloquear el registro de la venta.
+      console.warn('No se pudo guardar el cliente en la nube:', err);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDevice) {
+      alert('Selecciona un dispositivo antes de registrar la venta.');
+      return;
+    }
+    if (!customerName.trim() || !customerPhone.trim()) {
+      alert('El nombre y teléfono del cliente son obligatorios.');
+      return;
+    }
 
     const sale: Sale = {
       id: editingSale?.id || generateId(),
@@ -61,15 +108,19 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
       model: selectedDevice.model,
       color: selectedDevice.color,
       storage: selectedDevice.storage,
-      lotId: selectedDevice.lotId,
+      lotId: selectedDevice.lotId ?? '',
       saleDate,
       salePrice: parseFloat(salePrice) || 0,
-      customerName,
-      customerPhone,
-      customerEmail: customerEmail || undefined,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      customerEmail: customerEmail.trim() || undefined,
       paymentMethod: paymentMethod || undefined,
       notes,
     };
+
+    // Guardar el cliente en Firebase (sin dejar de registrar la venta si esto falla)
+    await saveCustomerToFirebase(!editingSale);
+
     onSave(sale);
   };
 
