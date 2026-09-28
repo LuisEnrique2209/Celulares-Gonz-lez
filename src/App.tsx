@@ -13,7 +13,7 @@ import {
   getCustomers, deleteCustomer,
   getRepairs, addRepair, updateRepair, deleteRepair,
   getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense,
-  getParts
+  getParts, saveParts, addPart, updatePart, deletePart
 } from './store';
 import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals, firebaseParts } from './firebaseService';
 import Dashboard from './components/Dashboard';
@@ -498,8 +498,15 @@ export default function App() {
     }
   };
 
-  // Part (Refacciones) handlers
+  // Part (Refacciones) handlers — Firestore + respaldo local
   const handleSavePart = async (part: Part) => {
+    // Guardar SIEMPRE en localStorage primero (funciona aunque no haya red/Firebase)
+    if (getParts().some(p => p.id === part.id)) {
+      updatePart(part);
+    } else {
+      addPart(part);
+    }
+    setParts(getParts());
     try {
       if (parts.some(p => p.id === part.id)) {
         await firebaseParts.update(part);
@@ -507,21 +514,23 @@ export default function App() {
         await firebaseParts.add(part);
       }
       const updatedParts = await firebaseParts.getAll();
+      saveParts(updatedParts);
       setParts(updatedParts);
     } catch (error) {
-      console.error('Error guardando refacción:', error);
-      alert('Error al guardar la refacción. Intenta de nuevo.');
+      console.error('Error guardando refacción en la nube (guardada localmente):', error);
     }
   };
 
   const handleDeletePart = async (id: string) => {
+    deletePart(id);
+    setParts(getParts());
     try {
       await firebaseParts.delete(id);
       const updatedParts = await firebaseParts.getAll();
+      saveParts(updatedParts);
       setParts(updatedParts);
     } catch (error) {
-      console.error('Error eliminando refacción:', error);
-      alert('Error al eliminar la refacción. Intenta de nuevo.');
+      console.error('Error eliminando refacción en la nube (eliminada localmente):', error);
     }
   };
 
