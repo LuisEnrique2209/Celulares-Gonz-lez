@@ -53,7 +53,7 @@ export default function RepairForm({ onSave, editingRepair, onCancel }: Props) {
       id: editingRepair?.id || generateId(),
       customerName,
       customerPhone,
-      customerEmail: customerEmail || undefined,
+      customerEmail: customerEmail || '',
       brand,
       model,
       issue,

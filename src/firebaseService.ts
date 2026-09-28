@@ -17,6 +17,27 @@ import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyEx
 // Helper para convertir documentos de Firestore
 const docToData = (doc: any) => ({ id: doc.id, ...doc.data() });
 
+// ============ SANITIZACIÓN DE DATOS PARA FIRESTORE ============
+// Firestore NO permite valores 'undefined' en setDoc()/addDoc()/updateDoc().
+// Este helper recorre el objeto y reemplaza todo 'undefined' por null
+// (incluidos objetos anidados), de modo que ningún campo pueda quedar
+// indefinido al escribir en las colecciones 'customers', 'sales', etc.
+export const sanitizeForFirestore = <T>(obj: T): T => {
+  if (obj === undefined) return null as unknown as T;
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const result: Record<string, any> = {};
+    Object.keys(obj as Record<string, any>).forEach(key => {
+      const value = (obj as Record<string, any>)[key];
+      result[key] = value === undefined ? null : sanitizeForFirestore(value);
+    });
+    return result as unknown as T;
+  }
+  return obj;
+};
+
 // ============ DEVICES ============
 export const firebaseDevices = {
   getAll: async (): Promise<Device[]> => {
@@ -95,12 +116,30 @@ export const firebaseSales = {
   },
   
   add: async (sale: Sale): Promise<void> => {
-    const { id, ...data } = sale;
+    const { id, ...rest } = sale;
+    // Garantizar que ningún campo opcional llegue como undefined
+    // (Firestore rechaza undefined: "Unsupported field value: undefined").
+    const data = sanitizeForFirestore({
+      ...rest,
+      customerName: sale.customerName || '',
+      customerPhone: sale.customerPhone || '',
+      customerEmail: sale.customerEmail || '',   // "" si no viene definido
+      paymentMethod: sale.paymentMethod || '',
+      notes: sale.notes || ''
+    });
     await addDoc(collection(db, 'sales'), data);
   },
   
   update: async (sale: Sale): Promise<void> => {
-    const { id, ...data } = sale;
+    const { id, ...rest } = sale;
+    const data = sanitizeForFirestore({
+      ...rest,
+      customerName: sale.customerName || '',
+      customerPhone: sale.customerPhone || '',
+      customerEmail: sale.customerEmail || '',
+      paymentMethod: sale.paymentMethod || '',
+      notes: sale.notes || ''
+    });
     await updateDoc(doc(db, 'sales', id), data);
   },
   
@@ -192,8 +231,20 @@ export const firebaseCustomers = {
       doc.data().phone === customer.phone || doc.data().name === customer.name
     );
     
-    const { id, ...data } = customer;
-    
+    const { id, ...rest } = customer;
+    // Garantizar que ningún campo opcional llegue como undefined
+    // (evita "Unsupported field value: undefined (found in field email...)").
+    const data = sanitizeForFirestore({
+      ...rest,
+      name: customer.name || '',
+      phone: customer.phone || '',
+      email: customer.email || '',               // "" si no se proporciona
+      totalPurchases: customer.totalPurchases ?? 0,
+      totalSpent: customer.totalSpent ?? 0,
+      firstPurchaseDate: customer.firstPurchaseDate || '',
+      lastPurchaseDate: customer.lastPurchaseDate || ''
+    });
+
     if (existing) {
       await updateDoc(doc(db, 'customers', existing.id), data);
     } else {
