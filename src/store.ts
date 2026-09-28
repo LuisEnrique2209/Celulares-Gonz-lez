@@ -331,7 +331,7 @@ export function addOrUpdateCustomer(name: string, phone: string, email: string |
       id: generateId(),
       name,
       phone,
-      email: email || undefined,
+      email: email || '',        // "" en lugar de undefined (Firestore no acepta undefined)
       totalPurchases: 1,
       totalSpent: saleAmount,
       firstPurchaseDate: saleDate,

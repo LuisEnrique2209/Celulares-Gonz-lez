@@ -52,7 +52,7 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
     if (!selectedDevice) return;
 
     // Save customer
-    addOrUpdateCustomer(customerName, customerPhone, customerEmail || undefined, parseFloat(salePrice) || 0, saleDate);
+    addOrUpdateCustomer(customerName, customerPhone, customerEmail || '', parseFloat(salePrice) || 0, saleDate);
 
     const sale: Sale = {
       id: editingSale?.id || generateId(),
@@ -66,8 +66,8 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
       salePrice: parseFloat(salePrice) || 0,
       customerName,
       customerPhone,
-      customerEmail: customerEmail || undefined,
-      paymentMethod: paymentMethod || undefined,
+      customerEmail: customerEmail || '',   // "" si el cliente no tiene email
+      paymentMethod: paymentMethod || '',
       notes,
     };
     onSave(sale);
