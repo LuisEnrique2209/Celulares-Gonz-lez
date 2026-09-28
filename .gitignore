@@ -1,14 +1,2 @@
-(empty)# Dependencias (Vercel las instala con npm ci)
-node_modules/
-
-# Salida de build (Vercel genera dist/)
-dist/
-
-# Archivos de entorno y locales
-.env
-.env.local
-.vercel
-
-# Sistema / editor
-.DS_Store
-*.log
+# Compressed files
+*.zip

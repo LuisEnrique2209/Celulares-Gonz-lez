@@ -1,0 +1,7 @@
+ INFO  Accepting connections at http://localhost:4173
+ HTTP  9/28/2026 3:56:41 PM 127.0.0.1 GET /
+ HTTP  9/28/2026 3:56:41 PM 127.0.0.1 Returned 200 in 24 ms
+ HTTP  9/28/2026 3:57:10 PM ::1 GET /
+ HTTP  9/28/2026 3:57:10 PM ::1 Returned 200 in 2 ms
+ HTTP  9/28/2026 3:58:48 PM ::1 GET /
+ HTTP  9/28/2026 3:58:48 PM ::1 Returned 200 in 4 ms
