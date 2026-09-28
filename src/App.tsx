@@ -57,11 +57,24 @@ export default function App() {
   const [lastSaleForPolicy, setLastSaleForPolicy] = useState<Sale | null>(null);
 
   useEffect(() => {
-    // Cargar datos desde Firebase
-    const loadData = async () => {
+    // 1) Mostrar SIEMPRE los datos locales de inmediato (persisten tras recargar,
+    //    aunque no haya red o Firebase falle).
+    setDevices(getDevices());
+    setLots(getLots());
+    setSales(getSales());
+    setChecks(getQualityChecks());
+    setSlots(getCheckSlots());
+    setCustomers(getCustomers());
+    setRepairs(getRepairs());
+    setMonthlyExpenses(getMonthlyExpenses());
+    setParts(getParts());
+
+    // 2) Sincronizar con Firebase en segundo plano. Si la nube tiene datos,
+    //    se mezclan con los locales sin perder nada (los locales se suben arriba).
+    const syncFromFirebase = async () => {
       try {
-        console.log('🔄 Cargando datos desde Firebase...');
-        
+        console.log('🔄 Sincronizando datos con Firebase...');
+
         const [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData, partsData] = await Promise.all([
           firebaseDevices.getAll(),
           firebaseLots.getAll(),
@@ -73,7 +86,7 @@ export default function App() {
           firebaseExpenses.getAll(),
           firebaseParts.getAll()
         ]);
-        
+
         console.log('✅ Datos cargados desde Firebase:', {
           devices: devicesData.length,
           lots: lotsData.length,
@@ -85,33 +98,71 @@ export default function App() {
           expenses: expensesData.length,
           parts: partsData.length
         });
-        
-        setDevices(devicesData);
-        setLots(lotsData);
-        setSales(salesData);
-        setChecks(checksData);
-        setSlots(slotsData);
-        setCustomers(customersData);
-        setRepairs(repairsData);
-        setMonthlyExpenses(expensesData);
-        setParts(partsData);
+
+        // --- Refacciones: mezclar nube + local (por id) y subir las locales que falten ---
+        const localParts = getParts();
+        const partIds = new Set(partsData.map(p => p.id));
+        const mergedParts = [...partsData, ...localParts.filter(p => !partIds.has(p.id))];
+        if (partsData.some(p => !localParts.some(lp => lp.id === p.id))) saveParts(mergedParts);
+        setParts(mergedParts);
+        for (const p of localParts.filter(p => !partIds.has(p.id))) {
+          try { await firebaseParts.add(p); } catch { /* reintentar al guardar otra refacción */ }
+        }
+
+        // --- Ventas: misma mezcla (incluye refacciones vendidas) ---
+        const localSales = getSales();
+        const saleIds = new Set(salesData.map(s => s.id));
+        setSales([...salesData, ...localSales.filter(s => !saleIds.has(s.id))]);
+        for (const s of localSales.filter(s => !saleIds.has(s.id))) {
+          try { await firebaseSales.add(s); } catch { /* ok */ }
+        }
+
+        // --- Dispositivos ---
+        const localDevices = getDevices();
+        const devIds = new Set(devicesData.map(d => d.id));
+        setDevices([...devicesData, ...localDevices.filter(d => !devIds.has(d.id))]);
+        for (const d of localDevices.filter(d => !devIds.has(d.id))) {
+          try { await firebaseDevices.add(d); } catch { /* ok */ }
+        }
+
+        // --- Lotes ---
+        const localLots = getLots();
+        const lotIds = new Set(lotsData.map(l => l.id));
+        setLots([...lotsData, ...localLots.filter(l => !lotIds.has(l.id))]);
+        for (const l of localLots.filter(l => !lotIds.has(l.id))) {
+          try { await firebaseLots.add(l); } catch { /* ok */ }
+        }
+
+        // --- Reparaciones ---
+        const localRepairs = getRepairs();
+        const repIds = new Set(repairsData.map(r => r.id));
+        setRepairs([...repairsData, ...localRepairs.filter(r => !repIds.has(r.id))]);
+        for (const r of localRepairs.filter(r => !repIds.has(r.id))) {
+          try { await firebaseRepairs.add(r); } catch { /* ok */ }
+        }
+
+        // --- Clientes / Gastos / Chequeos / Slots (solo lectura combinada) ---
+        const localCustomers = getCustomers();
+        const custIds = new Set(customersData.map(c => c.id));
+        setCustomers([...customersData, ...localCustomers.filter(c => !custIds.has(c.id))]);
+
+        const localExpenses = getMonthlyExpenses();
+        const expIds = new Set(expensesData.map(e => e.id));
+        setMonthlyExpenses([...expensesData, ...localExpenses.filter(e => !expIds.has(e.id))]);
+
+        const localChecks = getQualityChecks();
+        const chkIds = new Set(checksData.map(c => c.id));
+        setChecks([...checksData, ...localChecks.filter(c => !chkIds.has(c.id))]);
+
+        const localSlots = getCheckSlots();
+        const slotIds = new Set(slotsData.map(s => s.id));
+        setSlots([...slotsData, ...localSlots.filter(s => !slotIds.has(s.id))]);
       } catch (error) {
-        console.error('❌ Error cargando datos desde Firebase:', error);
-        // Fallback a localStorage si Firebase falla
-        console.log('🔄 Usando datos locales como fallback...');
-        setDevices(getDevices());
-        setLots(getLots());
-        setSales(getSales());
-        setChecks(getQualityChecks());
-        setSlots(getCheckSlots());
-        setCustomers(getCustomers());
-        setRepairs(getRepairs());
-        setMonthlyExpenses(getMonthlyExpenses());
-        setParts(getParts());
+        console.error('❌ Error sincronizando con Firebase (se muestran datos locales):', error);
       }
     };
-    
-    loadData();
+
+    syncFromFirebase();
   }, []);
 
   // Device handlers
