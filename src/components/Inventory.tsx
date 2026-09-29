@@ -1,25 +1,35 @@
 import { useState } from 'react';
-import { Device, Lot } from '../types';
+import { Device, Lot, Refaccion } from '../types';
 import { formatCurrency, formatDate, IPHONE_MODELS } from '../store';
+import Refacciones from './Refacciones';
 
 interface Props {
   devices: Device[];
   lots: Lot[];
   onEdit: (device: Device) => void;
   onDelete: (id: string) => void;
-  onOpenRefacciones?: () => void;
+  // Inventario de refacciones (ahora vive dentro de esta misma pestaña)
+  refacciones?: Refaccion[];
+  onSaveRefaccion?: (refaccion: Refaccion) => void;
+  onDeleteRefaccion?: (id: string) => void;
 }
 
-export default function Inventory({ devices, lots, onEdit, onDelete, onOpenRefacciones }: Props) {
+export default function Inventory({
+  devices,
+  lots,
+  onEdit,
+  onDelete,
+  refacciones,
+  onSaveRefaccion,
+  onDeleteRefaccion,
+}: Props) {
   const [search, setSearch] = useState('');
   const [filterModel, setFilterModel] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterLot, setFilterLot] = useState('');
   const [filterChecked, setFilterChecked] = useState('');
   // Filtro por tipo de inventario: teléfonos (dispositivos) o refacciones.
-  // El estado se declara aquí como filterInventoryType; en una edición anterior
-  // se usaba "filterTipo" sin declararlo, lo que lanzaba
-  // ReferenceError: filterTipo is not defined al abrir la pestaña.
+  // Todo el inventario vive en una sola pestaña y se alterna con este filtro.
   const [filterInventoryType, setFilterInventoryType] = useState<'devices' | 'refacciones'>('devices');
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
 
@@ -86,19 +96,55 @@ export default function Inventory({ devices, lots, onEdit, onDelete, onOpenRefac
     );
   };
 
+  // Selector de tipo de inventario (única pestaña "Inventario")
+  const inventoryTypeTabs = (
+    <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+      <button
+        onClick={() => setFilterInventoryType('devices')}
+        className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+          filterInventoryType === 'devices'
+            ? 'bg-blue-600 text-white shadow'
+            : 'text-gray-600 hover:bg-gray-50'
+        }`}
+      >
+        📱 Dispositivos
+      </button>
+      <button
+        onClick={() => setFilterInventoryType('refacciones')}
+        className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+          filterInventoryType === 'refacciones'
+            ? 'bg-purple-600 text-white shadow'
+            : 'text-gray-600 hover:bg-gray-50'
+        }`}
+      >
+        🔩 Refacciones
+      </button>
+    </div>
+  );
+
+  // Vista de refacciones: mismo componente gestor, dentro de la pestaña
+  if (filterInventoryType === 'refacciones') {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-3xl font-bold text-gray-900">Inventario</h1>
+          {inventoryTypeTabs}
+        </div>
+        <Refacciones
+          refacciones={Array.isArray(refacciones) ? refacciones : []}
+          onSave={(r) => onSaveRefaccion?.(r)}
+          onDelete={(id) => onDeleteRefaccion?.(id)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-bold text-gray-900">Inventario</h1>
         <div className="flex items-center gap-4">
-          {filterInventoryType === 'refacciones' && (
-            <button
-              onClick={() => onOpenRefacciones?.()}
-              className="px-3 py-2 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors"
-            >
-              Gestionar refacciones →
-            </button>
-          )}
+          {inventoryTypeTabs}
           <div className="text-right">
             <p className="text-xs text-gray-500">Total en sistema</p>
             <p className="text-lg font-bold text-gray-900">{deviceList.length} dispositivos</p>
@@ -111,7 +157,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete, onOpenRefac
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <input
             type="text"
             placeholder="Buscar por IMEI, modelo o color..."
@@ -119,14 +165,6 @@ export default function Inventory({ devices, lots, onEdit, onDelete, onOpenRefac
             onChange={e => setSearch(e.target.value)}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <select
-            value={filterInventoryType}
-            onChange={e => setFilterInventoryType(e.target.value as 'devices' | 'refacciones')}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="devices">📱 Inventario de teléfonos</option>
-            <option value="refacciones">🔩 Inventario de refacciones</option>
-          </select>
           <select
             value={filterModel}
             onChange={e => setFilterModel(e.target.value)}
@@ -322,21 +360,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete, onOpenRefac
 
       {filteredDevices.length === 0 && (
         <div className="text-center py-12">
-          {filterInventoryType === 'refacciones' ? (
-            <>
-              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-3xl">🔩</span>
-              </div>
-              <p className="text-gray-500 text-lg font-medium">El inventario de refacciones se gestiona aparte</p>
-              <p className="text-gray-400 text-sm mt-2">Baterías, pantallas, cámaras y demás repuestos</p>
-              <button
-                onClick={() => onOpenRefacciones?.()}
-                className="mt-4 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                Abrir inventario de refacciones
-              </button>
-            </>
-          ) : deviceList.length === 0 ? (
+          {deviceList.length === 0 ? (
             <>
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -364,7 +388,6 @@ export default function Inventory({ devices, lots, onEdit, onDelete, onOpenRefac
                   setFilterStatus('');
                   setFilterLot('');
                   setFilterChecked('');
-                  setFilterInventoryType('devices');
                 }}
                 className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
               >

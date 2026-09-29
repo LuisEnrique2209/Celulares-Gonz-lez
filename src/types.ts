@@ -72,7 +72,14 @@ export interface Sale {
   customerEmail?: string;
   paymentMethod?: string;
   notes: string;
+  // Tipo de artículo vendido: dispositivo (teléfono) o refacción.
+  // Las ventas antiguas no traen este campo => se asume 'dispositivo'.
+  type?: 'dispositivo' | 'refaccion';
+  quantity?: number; // Cantidad vendida (aplica para refacciones)
 }
+
+// Ventas antiguas (sin campo type) se consideran ventas de dispositivos
+export const isRefaccionSale = (s: { type?: string }) => s.type === 'refaccion';
 
 export interface Customer {
   id: string;
@@ -180,4 +187,4 @@ export interface Refaccion {
   createdAt: string;
 }
 
-export type TabType = 'dashboard' | 'inventory' | 'refacciones' | 'lots' | 'sales' | 'financial' | 'customers' | 'repairs' | 'goals' | 'quality-check' | 'add-device' | 'add-lot' | 'add-sale' | 'add-check' | 'add-repair' | 'check-lot';
+export type TabType = 'dashboard' | 'inventory' | 'lots' | 'sales' | 'financial' | 'customers' | 'repairs' | 'goals' | 'quality-check' | 'add-device' | 'add-lot' | 'add-sale' | 'add-check' | 'add-repair' | 'check-lot';
