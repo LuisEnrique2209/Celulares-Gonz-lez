@@ -163,4 +163,21 @@ export interface QualityCheck {
   checkedBy: string;
 }
 
-export type TabType = 'dashboard' | 'inventory' | 'lots' | 'sales' | 'financial' | 'customers' | 'repairs' | 'goals' | 'quality-check' | 'add-device' | 'add-lot' | 'add-sale' | 'add-check' | 'add-repair' | 'check-lot';
+// Refacciones (repuestos / parts) usadas en reparaciones y venta suelta
+export interface Refaccion {
+  id: string;
+  name: string;              // p.ej. "Batería iPhone 11"
+  category: string;          // Baterías, Pantallas, Cámaras, Botones, Flex, Cargos, etc.
+  brand?: string;            // Marca del repuesto (Original, OEM, Genérica...)
+  compatibleModels?: string; // Modelos compatibles (texto libre)
+  quantity: number;          // Existencias disponibles
+  minStock: number;          // Nivel mínimo para alerta de compra
+  costPrice: number;         // Precio de compra (unitario)
+  salePrice: number;         // Precio de venta / costo aplicado en reparaciones
+  supplier?: string;
+  location?: string;         // Estante / casillero
+  notes?: string;
+  createdAt: string;
+}
+
+export type TabType = 'dashboard' | 'inventory' | 'refacciones' | 'lots' | 'sales' | 'financial' | 'customers' | 'repairs' | 'goals' | 'quality-check' | 'add-device' | 'add-lot' | 'add-sale' | 'add-check' | 'add-repair' | 'check-lot';

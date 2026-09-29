@@ -7,21 +7,33 @@ interface Props {
   lots: Lot[];
   onEdit: (device: Device) => void;
   onDelete: (id: string) => void;
+  onOpenRefacciones?: () => void;
 }
 
-export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
+export default function Inventory({ devices, lots, onEdit, onDelete, onOpenRefacciones }: Props) {
   const [search, setSearch] = useState('');
   const [filterModel, setFilterModel] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterLot, setFilterLot] = useState('');
   const [filterChecked, setFilterChecked] = useState('');
+  // Filtro por tipo de inventario: teléfonos (dispositivos) o refacciones.
+  // El estado se declara aquí como filterInventoryType; en una edición anterior
+  // se usaba "filterTipo" sin declararlo, lo que lanzaba
+  // ReferenceError: filterTipo is not defined al abrir la pestaña.
+  const [filterInventoryType, setFilterInventoryType] = useState<'devices' | 'refacciones'>('devices');
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
 
-  const filteredDevices = devices.filter(d => {
-    const matchSearch = search === '' || 
-      d.imei.toLowerCase().includes(search.toLowerCase()) ||
-      d.model.toLowerCase().includes(search.toLowerCase()) ||
-      d.color.toLowerCase().includes(search.toLowerCase());
+  // Datos normalizados: si Firestore devuelve undefined/null no rompe el .filter()
+  const deviceList = Array.isArray(devices) ? devices : [];
+  const lotList = Array.isArray(lots) ? lots : [];
+
+  const filteredDevices = deviceList.filter(d => {
+    if (filterInventoryType === 'refacciones') return false;
+    const q = search.trim().toLowerCase();
+    const matchSearch = q === '' ||
+      String(d.imei || '').toLowerCase().includes(q) ||
+      String(d.model || '').toLowerCase().includes(q) ||
+      String(d.color || '').toLowerCase().includes(q);
     const matchModel = filterModel === '' || d.model === filterModel;
     const matchStatus = filterStatus === '' || d.status === filterStatus;
     const matchLot = filterLot === '' || d.lotId === filterLot;
@@ -32,7 +44,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
   });
 
   const getLotName = (lotId: string) => {
-    const lot = lots.find(l => l.id === lotId);
+    const lot = lotList.find(l => l.id === lotId);
     return lot ? lot.name : 'Sin lote';
   };
 
@@ -79,11 +91,19 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Inventario</h1>
         <div className="flex items-center gap-4">
+          {filterInventoryType === 'refacciones' && (
+            <button
+              onClick={() => onOpenRefacciones?.()}
+              className="px-3 py-2 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              Gestionar refacciones →
+            </button>
+          )}
           <div className="text-right">
             <p className="text-xs text-gray-500">Total en sistema</p>
-            <p className="text-lg font-bold text-gray-900">{devices.length} dispositivos</p>
+            <p className="text-lg font-bold text-gray-900">{deviceList.length} dispositivos</p>
           </div>
-          {filteredDevices.length !== devices.length && (
+          {filteredDevices.length !== deviceList.length && (
             <span className="text-sm text-blue-600 font-medium">({filteredDevices.length} mostrados)</span>
           )}
         </div>
@@ -91,7 +111,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <input
             type="text"
             placeholder="Buscar por IMEI, modelo o color..."
@@ -99,6 +119,14 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
             onChange={e => setSearch(e.target.value)}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+          <select
+            value={filterInventoryType}
+            onChange={e => setFilterInventoryType(e.target.value as 'devices' | 'refacciones')}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="devices">📱 Inventario de teléfonos</option>
+            <option value="refacciones">🔩 Inventario de refacciones</option>
+          </select>
           <select
             value={filterModel}
             onChange={e => setFilterModel(e.target.value)}
@@ -135,7 +163,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">Todos los lotes</option>
-            {lots.map(l => (
+            {lotList.map(l => (
               <option key={l.id} value={l.id}>{l.name}</option>
             ))}
           </select>
@@ -294,7 +322,21 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
 
       {filteredDevices.length === 0 && (
         <div className="text-center py-12">
-          {devices.length === 0 ? (
+          {filterInventoryType === 'refacciones' ? (
+            <>
+              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">🔩</span>
+              </div>
+              <p className="text-gray-500 text-lg font-medium">El inventario de refacciones se gestiona aparte</p>
+              <p className="text-gray-400 text-sm mt-2">Baterías, pantallas, cámaras y demás repuestos</p>
+              <button
+                onClick={() => onOpenRefacciones?.()}
+                className="mt-4 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Abrir inventario de refacciones
+              </button>
+            </>
+          ) : deviceList.length === 0 ? (
             <>
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -313,7 +355,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
               </div>
               <p className="text-gray-500 text-lg font-medium">No se encontraron dispositivos con los filtros actuales</p>
               <p className="text-gray-400 text-sm mt-2">
-                Tienes {devices.length} dispositivos en total, pero los filtros están ocultando todos
+                Tienes {deviceList.length} dispositivos en total, pero los filtros están ocultando todos
               </p>
               <button
                 onClick={() => {
@@ -322,6 +364,7 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
                   setFilterStatus('');
                   setFilterLot('');
                   setFilterChecked('');
+                  setFilterInventoryType('devices');
                 }}
                 className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
               >

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, TabType } from './types';
+import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, Refaccion, TabType } from './types';
 import {
   getDevices, saveDevices, getLots, saveLots,
   getSales, saveSales, getQualityChecks, saveQualityChecks,
@@ -12,11 +12,13 @@ import {
   generateId,
   getCustomers, deleteCustomer,
   getRepairs, addRepair, updateRepair, deleteRepair,
-  getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense
+  getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense,
+  getRefacciones, saveRefacciones
 } from './store';
-import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals } from './firebaseService';
+import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals, firebaseRefacciones } from './firebaseService';
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
+import Refacciones from './components/Refacciones';
 import Lots from './components/Lots';
 import DeviceForm from './components/DeviceForm';
 import LotForm from './components/LotForm';
@@ -43,6 +45,7 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [repairs, setRepairs] = useState<Repair[]>([]);
   const [monthlyExpenses, setMonthlyExpenses] = useState<MonthlyExpense[]>([]);
+  const [refacciones, setRefacciones] = useState<Refaccion[]>([]);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [editingLot, setEditingLot] = useState<Lot | null>(null);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
@@ -58,6 +61,16 @@ export default function App() {
       try {
         console.log('🔄 Cargando datos desde Firebase...');
         
+        // Las refacciones se cargan aparte: si la colección aún no existe en
+        // Firestore, el resto de la app sigue funcionando con datos locales.
+        let refaccionesData: Refaccion[] = [];
+        try {
+          refaccionesData = await firebaseRefacciones.getAll();
+        } catch (err) {
+          console.warn('Colección "refacciones" no disponible, usando localStorage:', err);
+          refaccionesData = getRefacciones();
+        }
+
         const [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData] = await Promise.all([
           firebaseDevices.getAll(),
           firebaseLots.getAll(),
@@ -77,7 +90,8 @@ export default function App() {
           slots: slotsData.length,
           customers: customersData.length,
           repairs: repairsData.length,
-          expenses: expensesData.length
+          expenses: expensesData.length,
+          refacciones: refaccionesData.length
         });
         
         setDevices(devicesData);
@@ -88,6 +102,7 @@ export default function App() {
         setCustomers(customersData);
         setRepairs(repairsData);
         setMonthlyExpenses(expensesData);
+        setRefacciones(refaccionesData);
       } catch (error) {
         console.error('❌ Error cargando datos desde Firebase:', error);
         // Fallback a localStorage si Firebase falla
@@ -100,6 +115,7 @@ export default function App() {
         setCustomers(getCustomers());
         setRepairs(getRepairs());
         setMonthlyExpenses(getMonthlyExpenses());
+        setRefacciones(getRefacciones());
       }
     };
     
@@ -491,13 +507,51 @@ export default function App() {
     }
   };
 
+  // Refacciones handlers (inventario de repuestos)
+  const handleSaveRefaccion = async (refaccion: Refaccion) => {
+    try {
+      if (refaccion.id && refacciones.some(r => r.id === refaccion.id)) {
+        await firebaseRefacciones.update(refaccion);
+      } else {
+        await firebaseRefacciones.add(refaccion);
+      }
+      const updated = await firebaseRefacciones.getAll();
+      setRefacciones(updated);
+      saveRefacciones(updated);
+    } catch (error) {
+      console.error('Error guardando refacción:', error);
+      // Fallback local para que el alta no se pierda
+      const current = Array.isArray(refacciones) ? [...refacciones] : [];
+      const idx = current.findIndex(r => r.id === refaccion.id);
+      if (idx !== -1) current[idx] = refaccion; else current.push(refaccion);
+      setRefacciones(current);
+      saveRefacciones(current);
+      alert('Se guardó localmente. Revisa tu conexión con Firebase para sincronizar.');
+    }
+  };
+
+  const handleDeleteRefaccion = async (id: string) => {
+    try {
+      await firebaseRefacciones.delete(id);
+      const updated = await firebaseRefacciones.getAll();
+      setRefacciones(updated);
+      saveRefacciones(updated);
+    } catch (error) {
+      console.error('Error eliminando refacción:', error);
+      const updated = refacciones.filter(r => r.id !== id);
+      setRefacciones(updated);
+      saveRefacciones(updated);
+    }
+  };
+
   const pendingSlots = slots.filter(s => !s.checked);
   const checkingLot = checkingLotId ? lots.find(l => l.id === checkingLotId) : null;
   const checkingLotSlots = checkingLotId ? slots.filter(s => s.lotId === checkingLotId) : [];
 
   const navItems = [
     { id: 'dashboard' as TabType, label: 'Dashboard', icon: '📊' },
-    { id: 'inventory' as TabType, label: 'Inventario', icon: '📱' },
+    { id: 'inventory' as TabType, label: 'Inventario Teléfonos', icon: '📱' },
+    { id: 'refacciones' as TabType, label: 'Inventario Refacciones', icon: '🔩' },
     { id: 'lots' as TabType, label: 'Lotes', icon: '📦' },
     { id: 'sales' as TabType, label: 'Ventas', icon: '💰' },
     { id: 'financial' as TabType, label: 'Análisis Financiero', icon: '📈' },
@@ -531,7 +585,9 @@ export default function App() {
       case 'dashboard':
         return <Dashboard devices={devices} lots={lots} sales={sales} checks={checks} customers={customers} />;
       case 'inventory':
-        return <Inventory devices={devices} lots={lots} onEdit={handleEditDevice} onDelete={handleDeleteDevice} />;
+        return <Inventory devices={devices} lots={lots} onEdit={handleEditDevice} onDelete={handleDeleteDevice} onOpenRefacciones={() => setActiveTab('refacciones')} />;
+      case 'refacciones':
+        return <Refacciones refacciones={refacciones} onSave={handleSaveRefaccion} onDelete={handleDeleteRefaccion} />;
       case 'lots':
         return <Lots lots={lots} devices={devices} slots={slots} onEdit={handleEditLot} onDelete={handleDeleteLot} onCheckLot={handleCheckLot} />;
       case 'sales':

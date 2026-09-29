@@ -1,4 +1,4 @@
-import { Device, Lot, LotItem, Sale, QualityCheck, CheckSlot, MonthlyExpense, MonthlyGoal } from './types';
+import { Device, Lot, LotItem, Sale, QualityCheck, CheckSlot, MonthlyExpense, MonthlyGoal, Refaccion } from './types';
 
 const DEVICES_KEY = 'iphone_tracker_devices';
 const LOTS_KEY = 'iphone_tracker_lots';
@@ -441,4 +441,69 @@ export function deleteMonthlyGoal(id: string): void {
 export function getMonthlyGoalByMonth(month: string): MonthlyGoal | undefined {
   const goals = getMonthlyGoals();
   return goals.find(g => g.month === month);
+}
+
+// ============ Refacciones (Inventario de repuestos) ============
+const REFACCIONES_KEY = 'iphone_tracker_refacciones';
+
+export const REFACCION_CATEGORIES = [
+  'Baterías',
+  'Pantallas',
+  'Cámaras',
+  'Botones / Flex',
+  'Puertos de carga',
+  'Altavoces / Buzzer',
+  'Micrófonos',
+  'Antenas / WiFi',
+  'Vidrio trasero',
+  'Chasis / Carcasas',
+  'Cargadores / Accesorios',
+  'Herramienta',
+  'Otros',
+];
+
+export function getRefacciones(): Refaccion[] {
+  try {
+    const data = localStorage.getItem(REFACCIONES_KEY);
+    const list = data ? JSON.parse(data) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRefacciones(refacciones: Refaccion[]): void {
+  localStorage.setItem(REFACCIONES_KEY, JSON.stringify(refacciones || []));
+}
+
+export function addRefaccion(refaccion: Refaccion): void {
+  const list = getRefacciones();
+  list.push(refaccion);
+  saveRefacciones(list);
+}
+
+export function updateRefaccion(refaccion: Refaccion): void {
+  const list = getRefacciones();
+  const index = list.findIndex(r => r.id === refaccion.id);
+  if (index !== -1) {
+    list[index] = refaccion;
+    saveRefacciones(list);
+  } else {
+    list.push(refaccion);
+    saveRefacciones(list);
+  }
+}
+
+export function deleteRefaccion(id: string): void {
+  saveRefacciones(getRefacciones().filter(r => r.id !== id));
+}
+
+// Descuenta existencias al usar una refacción en una reparación
+export function consumeRefaccion(id: string, qty = 1): void {
+  const list = getRefacciones();
+  const index = list.findIndex(r => r.id === id);
+  if (index !== -1) {
+    list[index].quantity = Math.max(0, (list[index].quantity || 0) - qty);
+    saveRefacciones(list);
+  }
 }
