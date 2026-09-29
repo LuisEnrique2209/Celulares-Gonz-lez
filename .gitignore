@@ -1,8 +1,11 @@
+# Dependencies
+node_modules/
+
 # Build artifacts
 dist/
 
 # Logs
 *.log
 
-# Archives
+# Compressed files
 *.zip
