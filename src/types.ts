@@ -19,6 +19,9 @@ export interface Device {
   checkDate?: string;
   batteryPercentage?: number; // % de batería registrado en el chequeo de calidad
   qualityStatus?: 'approved' | 'rejected'; // resultado del chequeo de calidad
+  isRefaccion?: boolean; // true si es una refacción/repuesto del inventario
+  quantity?: number; // stock disponible (solo refacciones)
+  unitCost?: number; // costo unitario (solo refacciones)
 }
 
 export interface LotItem {
@@ -72,6 +75,8 @@ export interface Sale {
   customerEmail?: string;
   paymentMethod?: string;
   notes: string;
+  saleType?: 'dispositivo' | 'refaccion'; // tipo de venta (dispositivo o refacción)
+  quantity?: number; // cantidad vendida (solo refacciones)
 }
 
 export interface Customer {
