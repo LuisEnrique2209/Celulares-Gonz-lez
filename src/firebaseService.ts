@@ -17,6 +17,19 @@ import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyEx
 // Helper para convertir documentos de Firestore
 const docToData = (doc: any) => ({ id: doc.id, ...doc.data() });
 
+// Helper para eliminar valores undefined antes de escribir en Firestore.
+// addDoc()/updateDoc() fallan con "Unsupported field value: undefined" si el
+// objeto contiene claves con valor undefined (p. ej. customerEmail sin completar).
+const stripUndefined = <T extends Record<string, any>>(data: T): T => {
+  const clean: Record<string, any> = {};
+  Object.keys(data).forEach(key => {
+    if (data[key] !== undefined) {
+      clean[key] = data[key];
+    }
+  });
+  return clean as T;
+};
+
 // ============ DEVICES ============
 export const firebaseDevices = {
   getAll: async (): Promise<Device[]> => {
@@ -34,18 +47,18 @@ export const firebaseDevices = {
       // Ya existe: actualizarlo en lugar de crear un duplicado
       const existingId = snap.docs[0].id;
       const { id, ...data } = device;
-      await updateDoc(doc(db, 'devices', existingId), data);
+      await updateDoc(doc(db, 'devices', existingId), stripUndefined(data));
       return;
     }
     const { id, ...data } = device;
     // Usar setDoc con id explícito para que sea idempotente y no choque
     // contra reglas/índices de addDoc
-    await setDoc(doc(db, 'devices', id), data);
+    await setDoc(doc(db, 'devices', id), stripUndefined(data));
   },
   
   update: async (device: Device): Promise<void> => {
     const { id, ...data } = device;
-    await updateDoc(doc(db, 'devices', id), data);
+    await updateDoc(doc(db, 'devices', id), stripUndefined(data));
   },
   
   delete: async (id: string): Promise<void> => {
@@ -63,12 +76,12 @@ export const firebaseLots = {
   
   add: async (lot: Lot): Promise<void> => {
     const { id, ...data } = lot;
-    await addDoc(collection(db, 'lots'), data);
+    await addDoc(collection(db, 'lots'), stripUndefined(data));
   },
   
   update: async (lot: Lot): Promise<void> => {
     const { id, ...data } = lot;
-    await updateDoc(doc(db, 'lots', id), data);
+    await updateDoc(doc(db, 'lots', id), stripUndefined(data));
   },
   
   delete: async (id: string): Promise<void> => {
@@ -96,12 +109,12 @@ export const firebaseSales = {
   
   add: async (sale: Sale): Promise<void> => {
     const { id, ...data } = sale;
-    await addDoc(collection(db, 'sales'), data);
+    await addDoc(collection(db, 'sales'), stripUndefined(data));
   },
   
   update: async (sale: Sale): Promise<void> => {
     const { id, ...data } = sale;
-    await updateDoc(doc(db, 'sales', id), data);
+    await updateDoc(doc(db, 'sales', id), stripUndefined(data));
   },
   
   delete: async (id: string): Promise<void> => {
@@ -119,12 +132,12 @@ export const firebaseChecks = {
   
   add: async (check: QualityCheck): Promise<void> => {
     const { id, ...data } = check;
-    await addDoc(collection(db, 'qualityChecks'), data);
+    await addDoc(collection(db, 'qualityChecks'), stripUndefined(data));
   },
   
   update: async (check: QualityCheck): Promise<void> => {
     const { id, ...data } = check;
-    await updateDoc(doc(db, 'qualityChecks', id), data);
+    await updateDoc(doc(db, 'qualityChecks', id), stripUndefined(data));
   },
   
   delete: async (id: string): Promise<void> => {
@@ -142,7 +155,7 @@ export const firebaseSlots = {
   
   add: async (slot: CheckSlot): Promise<void> => {
     const { id, ...data } = slot;
-    await addDoc(collection(db, 'checkSlots'), data);
+    await addDoc(collection(db, 'checkSlots'), stripUndefined(data));
   },
   
   addMany: async (slots: CheckSlot[]): Promise<void> => {
@@ -150,7 +163,7 @@ export const firebaseSlots = {
     slots.forEach(slot => {
       const { id, ...data } = slot;
       const docRef = doc(collection(db, 'checkSlots'));
-      batch.set(docRef, data);
+      batch.set(docRef, stripUndefined(data));
     });
     await batch.commit();
   },
@@ -158,11 +171,11 @@ export const firebaseSlots = {
   update: async (slot: CheckSlot): Promise<void> => {
     const { id, ...data } = slot;
     try {
-      await updateDoc(doc(db, 'checkSlots', id), data);
+      await updateDoc(doc(db, 'checkSlots', id), stripUndefined(data));
     } catch (err: any) {
       // Si el documento no existe (p.ej. migraciones antiguas), crearlo con setDoc
       if (err?.code === 'not-found' || err?.message?.includes('not found')) {
-        await setDoc(doc(db, 'checkSlots', id), data);
+        await setDoc(doc(db, 'checkSlots', id), stripUndefined(data));
       } else {
         throw err;
       }
@@ -195,9 +208,9 @@ export const firebaseCustomers = {
     const { id, ...data } = customer;
     
     if (existing) {
-      await updateDoc(doc(db, 'customers', existing.id), data);
+      await updateDoc(doc(db, 'customers', existing.id), stripUndefined(data));
     } else {
-      await addDoc(collection(db, 'customers'), data);
+      await addDoc(collection(db, 'customers'), stripUndefined(data));
     }
   },
   
@@ -216,12 +229,12 @@ export const firebaseRepairs = {
   
   add: async (repair: Repair): Promise<void> => {
     const { id, ...data } = repair;
-    await addDoc(collection(db, 'repairs'), data);
+    await addDoc(collection(db, 'repairs'), stripUndefined(data));
   },
   
   update: async (repair: Repair): Promise<void> => {
     const { id, ...data } = repair;
-    await updateDoc(doc(db, 'repairs', id), data);
+    await updateDoc(doc(db, 'repairs', id), stripUndefined(data));
   },
   
   delete: async (id: string): Promise<void> => {
@@ -239,12 +252,12 @@ export const firebaseExpenses = {
   
   add: async (expense: MonthlyExpense): Promise<void> => {
     const { id, ...data } = expense;
-    await addDoc(collection(db, 'monthlyExpenses'), data);
+    await addDoc(collection(db, 'monthlyExpenses'), stripUndefined(data));
   },
   
   update: async (expense: MonthlyExpense): Promise<void> => {
     const { id, ...data } = expense;
-    await updateDoc(doc(db, 'monthlyExpenses', id), data);
+    await updateDoc(doc(db, 'monthlyExpenses', id), stripUndefined(data));
   },
   
   delete: async (id: string): Promise<void> => {
@@ -262,12 +275,12 @@ export const firebaseGoals = {
   
   add: async (goal: MonthlyGoal): Promise<void> => {
     const { id, ...data } = goal;
-    await addDoc(collection(db, 'monthlyGoals'), data);
+    await addDoc(collection(db, 'monthlyGoals'), stripUndefined(data));
   },
   
   update: async (goal: MonthlyGoal): Promise<void> => {
     const { id, ...data } = goal;
-    await updateDoc(doc(db, 'monthlyGoals', id), data);
+    await updateDoc(doc(db, 'monthlyGoals', id), stripUndefined(data));
   },
   
   delete: async (id: string): Promise<void> => {
