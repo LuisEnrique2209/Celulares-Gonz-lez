@@ -308,7 +308,12 @@ export function saveCustomers(customers: Customer[]): void {
   localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers));
 }
 
-export function addOrUpdateCustomer(name: string, phone: string, email: string | undefined, saleAmount: number, saleDate: string): void {
+export async function addOrUpdateCustomer(name: string, phone: string, email: string | undefined, saleAmount: number, saleDate: string): Promise<void> {
+  // Nota: esta función se conservó por compatibilidad con datos locales antiguos,
+  // pero ya no se usa al registrar ventas. Antes escribía el cliente solo en
+  // localStorage (con email: undefined), por lo que los clientes nunca llegaban
+  // a Firestore. Ahora la venta registra/actualiza el cliente directamente en
+  // Firestore desde SaleForm mediante firebaseCustomers.add/update.
   const customers = getCustomers();
   const existingIndex = customers.findIndex(c => c.phone === phone || c.name === name);
   

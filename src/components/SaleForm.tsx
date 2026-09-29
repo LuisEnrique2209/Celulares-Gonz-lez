@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Sale, Device, Lot, Customer } from '../types';
-import { generateId, formatCurrency, getCustomers, addOrUpdateCustomer } from '../store';
+import { generateId, formatCurrency } from '../store';
+import { firebaseCustomers } from '../firebaseService';
 import CustomerSelector from './CustomerSelector';
 
 interface Props {
@@ -47,12 +48,51 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
   const profit = salePriceNum - deviceCost;
   const profitMargin = deviceCost > 0 ? (profit / deviceCost) * 100 : 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDevice) return;
 
-    // Save customer
-    addOrUpdateCustomer(customerName, customerPhone, customerEmail || undefined, parseFloat(salePrice) || 0, saleDate);
+    const salePriceNum = parseFloat(salePrice) || 0;
+
+    // Guardar/actualizar el cliente directamente en Firestore.
+    // Antes se usaba addOrUpdateCustomer() que solo escribía en localStorage,
+    // por lo que los clientes de las ventas nunca aparecían en la nube.
+    try {
+      const allCustomers = await firebaseCustomers.getAll();
+      const existing = allCustomers.find(
+        c => (customerPhone && c.phone === customerPhone) || c.name === customerName
+      );
+
+      if (existing) {
+        const firstPurchaseDate =
+          saleDate < existing.firstPurchaseDate ? saleDate : existing.firstPurchaseDate;
+        await firebaseCustomers.addOrUpdate({
+          ...existing,
+          name: customerName,
+          phone: customerPhone,
+          email: customerEmail || existing.email,
+          totalPurchases: (existing.totalPurchases || 0) + (editingSale ? 0 : 1),
+          totalSpent: (existing.totalSpent || 0) + (editingSale ? 0 : salePriceNum),
+          firstPurchaseDate,
+          lastPurchaseDate: saleDate,
+        });
+      } else {
+        await firebaseCustomers.addOrUpdate({
+          id: generateId(),
+          name: customerName,
+          phone: customerPhone,
+          email: customerEmail || undefined,
+          totalPurchases: 1,
+          totalSpent: salePriceNum,
+          firstPurchaseDate: saleDate,
+          lastPurchaseDate: saleDate,
+        });
+      }
+    } catch (error) {
+      console.error('Error guardando cliente:', error);
+      alert('No se pudo guardar el cliente. La venta no se registró. Intenta de nuevo.');
+      return;
+    }
 
     const sale: Sale = {
       id: editingSale?.id || generateId(),
@@ -63,7 +103,7 @@ export default function SaleForm({ devices, lots, onSave, editingSale, onCancel 
       storage: selectedDevice.storage,
       lotId: selectedDevice.lotId,
       saleDate,
-      salePrice: parseFloat(salePrice) || 0,
+      salePrice: salePriceNum,
       customerName,
       customerPhone,
       customerEmail: customerEmail || undefined,
