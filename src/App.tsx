@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, TabType } from './types';
+import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, Part, TabType } from './types';
 import {
   getDevices, saveDevices, getLots, saveLots,
   getSales, saveSales, getQualityChecks, saveQualityChecks,
@@ -12,11 +12,14 @@ import {
   generateId,
   getCustomers, deleteCustomer,
   getRepairs, addRepair, updateRepair, deleteRepair,
-  getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense
+  getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense,
+  getParts, saveParts, addPart, updatePart, deletePart,
+  applyPartsSale, restorePartsStock
 } from './store';
-import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals } from './firebaseService';
+import { firebaseDevices, firebaseLots, firebaseSales, firebaseChecks, firebaseSlots, firebaseCustomers, firebaseRepairs, firebaseExpenses, firebaseGoals, firebaseParts } from './firebaseService';
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
+import Parts from './components/Parts';
 import Lots from './components/Lots';
 import DeviceForm from './components/DeviceForm';
 import LotForm from './components/LotForm';
@@ -43,6 +46,7 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [repairs, setRepairs] = useState<Repair[]>([]);
   const [monthlyExpenses, setMonthlyExpenses] = useState<MonthlyExpense[]>([]);
+  const [parts, setParts] = useState<Part[]>([]);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [editingLot, setEditingLot] = useState<Lot | null>(null);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
@@ -53,12 +57,25 @@ export default function App() {
   const [lastSaleForPolicy, setLastSaleForPolicy] = useState<Sale | null>(null);
 
   useEffect(() => {
-    // Cargar datos desde Firebase
-    const loadData = async () => {
+    // 1) Mostrar SIEMPRE los datos locales de inmediato (persisten tras recargar,
+    //    aunque no haya red o Firebase falle).
+    setDevices(getDevices());
+    setLots(getLots());
+    setSales(getSales());
+    setChecks(getQualityChecks());
+    setSlots(getCheckSlots());
+    setCustomers(getCustomers());
+    setRepairs(getRepairs());
+    setMonthlyExpenses(getMonthlyExpenses());
+    setParts(getParts());
+
+    // 2) Sincronizar con Firebase en segundo plano. Si la nube tiene datos,
+    //    se mezclan con los locales sin perder nada (los locales se suben arriba).
+    const syncFromFirebase = async () => {
       try {
-        console.log('🔄 Cargando datos desde Firebase...');
-        
-        const [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData] = await Promise.all([
+        console.log('🔄 Sincronizando datos con Firebase...');
+
+        const [devicesData, lotsData, salesData, checksData, slotsData, customersData, repairsData, expensesData, partsData] = await Promise.all([
           firebaseDevices.getAll(),
           firebaseLots.getAll(),
           firebaseSales.getAll(),
@@ -66,9 +83,10 @@ export default function App() {
           firebaseSlots.getAll(),
           firebaseCustomers.getAll(),
           firebaseRepairs.getAll(),
-          firebaseExpenses.getAll()
+          firebaseExpenses.getAll(),
+          firebaseParts.getAll()
         ]);
-        
+
         console.log('✅ Datos cargados desde Firebase:', {
           devices: devicesData.length,
           lots: lotsData.length,
@@ -77,33 +95,74 @@ export default function App() {
           slots: slotsData.length,
           customers: customersData.length,
           repairs: repairsData.length,
-          expenses: expensesData.length
+          expenses: expensesData.length,
+          parts: partsData.length
         });
-        
-        setDevices(devicesData);
-        setLots(lotsData);
-        setSales(salesData);
-        setChecks(checksData);
-        setSlots(slotsData);
-        setCustomers(customersData);
-        setRepairs(repairsData);
-        setMonthlyExpenses(expensesData);
+
+        // --- Refacciones: mezclar nube + local (por id) y subir las locales que falten ---
+        const localParts = getParts();
+        const partIds = new Set(partsData.map(p => p.id));
+        const mergedParts = [...partsData, ...localParts.filter(p => !partIds.has(p.id))];
+        if (partsData.some(p => !localParts.some(lp => lp.id === p.id))) saveParts(mergedParts);
+        setParts(mergedParts);
+        for (const p of localParts.filter(p => !partIds.has(p.id))) {
+          try { await firebaseParts.add(p); } catch { /* reintentar al guardar otra refacción */ }
+        }
+
+        // --- Ventas: misma mezcla (incluye refacciones vendidas) ---
+        const localSales = getSales();
+        const saleIds = new Set(salesData.map(s => s.id));
+        setSales([...salesData, ...localSales.filter(s => !saleIds.has(s.id))]);
+        for (const s of localSales.filter(s => !saleIds.has(s.id))) {
+          try { await firebaseSales.add(s); } catch { /* ok */ }
+        }
+
+        // --- Dispositivos ---
+        const localDevices = getDevices();
+        const devIds = new Set(devicesData.map(d => d.id));
+        setDevices([...devicesData, ...localDevices.filter(d => !devIds.has(d.id))]);
+        for (const d of localDevices.filter(d => !devIds.has(d.id))) {
+          try { await firebaseDevices.add(d); } catch { /* ok */ }
+        }
+
+        // --- Lotes ---
+        const localLots = getLots();
+        const lotIds = new Set(lotsData.map(l => l.id));
+        setLots([...lotsData, ...localLots.filter(l => !lotIds.has(l.id))]);
+        for (const l of localLots.filter(l => !lotIds.has(l.id))) {
+          try { await firebaseLots.add(l); } catch { /* ok */ }
+        }
+
+        // --- Reparaciones ---
+        const localRepairs = getRepairs();
+        const repIds = new Set(repairsData.map(r => r.id));
+        setRepairs([...repairsData, ...localRepairs.filter(r => !repIds.has(r.id))]);
+        for (const r of localRepairs.filter(r => !repIds.has(r.id))) {
+          try { await firebaseRepairs.add(r); } catch { /* ok */ }
+        }
+
+        // --- Clientes / Gastos / Chequeos / Slots (solo lectura combinada) ---
+        const localCustomers = getCustomers();
+        const custIds = new Set(customersData.map(c => c.id));
+        setCustomers([...customersData, ...localCustomers.filter(c => !custIds.has(c.id))]);
+
+        const localExpenses = getMonthlyExpenses();
+        const expIds = new Set(expensesData.map(e => e.id));
+        setMonthlyExpenses([...expensesData, ...localExpenses.filter(e => !expIds.has(e.id))]);
+
+        const localChecks = getQualityChecks();
+        const chkIds = new Set(checksData.map(c => c.id));
+        setChecks([...checksData, ...localChecks.filter(c => !chkIds.has(c.id))]);
+
+        const localSlots = getCheckSlots();
+        const slotIds = new Set(slotsData.map(s => s.id));
+        setSlots([...slotsData, ...localSlots.filter(s => !slotIds.has(s.id))]);
       } catch (error) {
-        console.error('❌ Error cargando datos desde Firebase:', error);
-        // Fallback a localStorage si Firebase falla
-        console.log('🔄 Usando datos locales como fallback...');
-        setDevices(getDevices());
-        setLots(getLots());
-        setSales(getSales());
-        setChecks(getQualityChecks());
-        setSlots(getCheckSlots());
-        setCustomers(getCustomers());
-        setRepairs(getRepairs());
-        setMonthlyExpenses(getMonthlyExpenses());
+        console.error('❌ Error sincronizando con Firebase (se muestran datos locales):', error);
       }
     };
-    
-    loadData();
+
+    syncFromFirebase();
   }, []);
 
   // Device handlers
@@ -300,6 +359,30 @@ export default function App() {
   // Sale handlers
   const handleSaveSale = async (sale: Sale) => {
     try {
+      // Descuentas de refacciones para ventas nuevas (ya validadas en el formulario)
+      let syncedParts: Part[] | null = null;
+      if (!editingSale && sale.soldParts && sale.soldParts.length > 0) {
+        applyPartsSale(sale.soldParts);
+        syncedParts = getParts();
+      }
+      // Si se edita una venta que ya tenía refacciones, recalcular la diferencia de stock
+      if (editingSale) {
+        const prev = editingSale.soldParts || [];
+        const next = sale.soldParts || [];
+        const changes = new Map<string, number>();
+        prev.forEach(p => changes.set(p.partId, -(p.quantity)));
+        next.forEach(p => changes.set(p.partId, (changes.get(p.partId) || 0) + p.quantity));
+        const delta = Array.from(changes.entries())
+          .filter(([, d]) => d !== 0)
+          .map(([partId, d]) => ({ partId, restoreQty: -d })); // positivo = devolver stock, negativo = descontar
+        if (delta.length > 0) {
+          const toRestore = delta.filter(x => x.restoreQty > 0).map(x => ({ partId: x.partId, name: '', category: 'other' as const, model: '', quantity: x.restoreQty, unitCost: 0, unitPrice: 0 }));
+          const toDeduct = delta.filter(x => x.restoreQty < 0).map(x => ({ partId: x.partId, name: '', category: 'other' as const, model: '', quantity: -x.restoreQty, unitCost: 0, unitPrice: 0 }));
+          if (toRestore.length > 0) restorePartsStock(toRestore);
+          if (toDeduct.length > 0) applyPartsSale(toDeduct);
+          syncedParts = getParts();
+        }
+      }
       if (editingSale) {
         await firebaseSales.update(sale);
         setEditingSale(null);
@@ -307,6 +390,12 @@ export default function App() {
       } else {
         await firebaseSales.add(sale);
         setLastSaleForPolicy(sale);
+      }
+      // Sincronizar stock de refacciones en la nube
+      if (syncedParts) {
+        try {
+          for (const p of syncedParts) { await firebaseParts.update(p); }
+        } catch (e) { console.error('Error sincronizando refacciones en la nube:', e); }
       }
       // Update device status to sold
       const updatedDevices = await firebaseDevices.getAll();
@@ -333,6 +422,13 @@ export default function App() {
 
   const handleDeleteSale = async (id: string) => {
     try {
+      const deleted = sales.find(s => s.id === id);
+      if (deleted?.soldParts && deleted.soldParts.length > 0) {
+        restorePartsStock(deleted.soldParts);
+        try {
+          for (const p of getParts()) { await firebaseParts.update(p); }
+        } catch (e) { console.error('Error restaurando refacciones en la nube:', e); }
+      }
       await firebaseSales.delete(id);
       const updatedSales = await firebaseSales.getAll();
       setSales(updatedSales);
@@ -491,6 +587,42 @@ export default function App() {
     }
   };
 
+  // Part (Refacciones) handlers — Firestore + respaldo local
+  const handleSavePart = async (part: Part) => {
+    // Guardar SIEMPRE en localStorage primero (funciona aunque no haya red/Firebase)
+    if (getParts().some(p => p.id === part.id)) {
+      updatePart(part);
+    } else {
+      addPart(part);
+    }
+    setParts(getParts());
+    try {
+      if (parts.some(p => p.id === part.id)) {
+        await firebaseParts.update(part);
+      } else {
+        await firebaseParts.add(part);
+      }
+      const updatedParts = await firebaseParts.getAll();
+      saveParts(updatedParts);
+      setParts(updatedParts);
+    } catch (error) {
+      console.error('Error guardando refacción en la nube (guardada localmente):', error);
+    }
+  };
+
+  const handleDeletePart = async (id: string) => {
+    deletePart(id);
+    setParts(getParts());
+    try {
+      await firebaseParts.delete(id);
+      const updatedParts = await firebaseParts.getAll();
+      saveParts(updatedParts);
+      setParts(updatedParts);
+    } catch (error) {
+      console.error('Error eliminando refacción en la nube (eliminada localmente):', error);
+    }
+  };
+
   const pendingSlots = slots.filter(s => !s.checked);
   const checkingLot = checkingLotId ? lots.find(l => l.id === checkingLotId) : null;
   const checkingLotSlots = checkingLotId ? slots.filter(s => s.lotId === checkingLotId) : [];
@@ -498,6 +630,7 @@ export default function App() {
   const navItems = [
     { id: 'dashboard' as TabType, label: 'Dashboard', icon: '📊' },
     { id: 'inventory' as TabType, label: 'Inventario', icon: '📱' },
+    { id: 'parts' as TabType, label: 'Refacciones', icon: '🔧' },
     { id: 'lots' as TabType, label: 'Lotes', icon: '📦' },
     { id: 'sales' as TabType, label: 'Ventas', icon: '💰' },
     { id: 'financial' as TabType, label: 'Análisis Financiero', icon: '📈' },
@@ -507,6 +640,7 @@ export default function App() {
     { id: 'quality-check' as TabType, label: 'Historial Chequeo', icon: '📋' },
     { id: 'add-lot' as TabType, label: 'Nuevo Lote', icon: '🏷️' },
     { id: 'add-device' as TabType, label: 'Nuevo Dispositivo', icon: '➕' },
+    { id: 'add-part' as TabType, label: 'Nueva Refacción', icon: '🔩' },
     { id: 'add-sale' as TabType, label: 'Nueva Venta', icon: '🛒' },
     { id: 'add-repair' as TabType, label: 'Nueva Reparación', icon: '🔨' },
   ];
@@ -531,7 +665,9 @@ export default function App() {
       case 'dashboard':
         return <Dashboard devices={devices} lots={lots} sales={sales} checks={checks} customers={customers} />;
       case 'inventory':
-        return <Inventory devices={devices} lots={lots} onEdit={handleEditDevice} onDelete={handleDeleteDevice} />;
+        return <Inventory devices={devices} lots={lots} parts={parts} onEdit={handleEditDevice} onDelete={handleDeleteDevice} onSavePart={handleSavePart} onDeletePart={handleDeletePart} />;
+      case 'parts':
+        return <Parts parts={parts} onSave={handleSavePart} onDelete={handleDeletePart} />;
       case 'lots':
         return <Lots lots={lots} devices={devices} slots={slots} onEdit={handleEditLot} onDelete={handleDeleteLot} onCheckLot={handleCheckLot} />;
       case 'sales':
@@ -573,6 +709,8 @@ export default function App() {
         return <LotForm onSave={handleSaveLot} editingLot={editingLot} onCancel={() => { setEditingLot(null); setActiveTab('lots'); }} />;
       case 'add-sale':
         return <SaleForm devices={devices} lots={lots} onSave={handleSaveSale} editingSale={editingSale} onCancel={() => { setEditingSale(null); setActiveTab('sales'); }} />;
+      case 'add-part':
+        return <Parts parts={parts} onSave={handleSavePart} onDelete={handleDeletePart} />;
       case 'add-repair':
         return <RepairForm onSave={handleSaveRepair} editingRepair={editingRepair} onCancel={() => { setEditingRepair(null); setActiveTab('repairs'); }} />;
       case 'add-check':
@@ -677,6 +815,13 @@ export default function App() {
                 >
                   <span>+</span>
                   <span className="hidden sm:inline">Dispositivo</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('parts')}
+                  className="px-2.5 sm:px-3 py-2 bg-orange-500 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1"
+                >
+                  <span>🔩</span>
+                  <span className="hidden sm:inline">Refacción</span>
                 </button>
                 <button
                   onClick={() => { setActiveTab('add-sale'); setEditingSale(null); }}

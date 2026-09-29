@@ -31,7 +31,7 @@ export default function Sales({ sales, lots, onEdit, onDelete, onUpdateSale }: P
     return matchSearch && matchLot;
   });
 
-  const totalSales = sales.reduce((sum, s) => sum + s.salePrice, 0);
+  const totalSales = sales.reduce((sum, s) => sum + s.salePrice + (s.partsRevenue || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -123,7 +123,16 @@ export default function Sales({ sales, lots, onEdit, onDelete, onUpdateSale }: P
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-gray-500">Precio de Venta</p>
-                      <p className="text-xl font-bold text-green-600">{formatCurrency(sale.salePrice)}</p>
+                      <p className="text-xl font-bold text-green-600">{formatCurrency(sale.salePrice + (sale.partsRevenue || 0))}</p>
+                      {sale.soldParts && sale.soldParts.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1 justify-end">
+                          {sale.soldParts.map(sp => (
+                            <span key={sp.partId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-[11px] font-medium rounded-full">
+                              {sp.category === 'battery' ? '🔋' : sp.category === 'screen' ? '📱' : '🔩'} {sp.name} x{sp.quantity}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {sale.paymentMethod && (
                       <div className="text-right">

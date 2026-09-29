@@ -442,3 +442,71 @@ export function getMonthlyGoalByMonth(month: string): MonthlyGoal | undefined {
   const goals = getMonthlyGoals();
   return goals.find(g => g.month === month);
 }
+
+// Parts (Refacciones: baterías, pantallas, etc.)
+import { Part, SoldPartItem } from './types';
+
+const PARTS_KEY = 'iphone_tracker_parts';
+
+export function getParts(): Part[] {
+  const data = localStorage.getItem(PARTS_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+export function saveParts(parts: Part[]): void {
+  localStorage.setItem(PARTS_KEY, JSON.stringify(parts));
+}
+
+export function addPart(part: Part): void {
+  const parts = getParts();
+  parts.push(part);
+  saveParts(parts);
+}
+
+export function updatePart(part: Part): void {
+  const parts = getParts();
+  const index = parts.findIndex(p => p.id === part.id);
+  if (index !== -1) {
+    parts[index] = part;
+    saveParts(parts);
+  }
+}
+
+export function deletePart(id: string): void {
+  const parts = getParts().filter(p => p.id !== id);
+  saveParts(parts);
+}
+
+export const PART_CATEGORY_LABELS: Record<string, string> = {
+  battery: 'Batería',
+  screen: 'Pantalla',
+  other: 'Otra',
+};
+
+// Descuenta existencias de refacciones al registrar una venta.
+// Devuelve true si todas las cantidades solicitadas estaban disponibles.
+export function applyPartsSale(soldParts: SoldPartItem[]): boolean {
+  const parts = getParts();
+  // Validar primero (sin mutar) que haya suficiente stock
+  for (const item of soldParts) {
+    const part = parts.find(p => p.id === item.partId);
+    if (!part || part.quantity < item.quantity) return false;
+  }
+  const updated = parts.map(p => {
+    const item = soldParts.find(s => s.partId === p.id);
+    return item ? { ...p, quantity: Math.max(0, p.quantity - item.quantity) } : p;
+  });
+  saveParts(updated);
+  return true;
+}
+
+// Reabastece existencias cuando se elimina una venta con refacciones
+export function restorePartsStock(soldParts?: SoldPartItem[]): void {
+  if (!soldParts || soldParts.length === 0) return;
+  const parts = getParts();
+  const updated = parts.map(p => {
+    const item = soldParts.find(s => s.partId === p.id);
+    return item ? { ...p, quantity: p.quantity + item.quantity } : p;
+  });
+  saveParts(updated);
+}

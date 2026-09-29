@@ -151,6 +151,20 @@ export async function migrateToFirebase() {
       console.log('✅ Revisores migrados');
     }
 
+    // Migrar Parts (Refacciones)
+    const parts = JSON.parse(localStorage.getItem('iphone_tracker_parts') || '[]');
+    if (parts.length > 0) {
+      console.log(`🔧 Migrando ${parts.length} refacciones...`);
+      const batch10 = writeBatch(db);
+      parts.forEach((part: any) => {
+        const { id, ...data } = part;
+        // Usar el id original para evitar duplicados si se ejecuta más de una vez
+        batch10.set(doc(collection(db, 'parts'), id), data);
+      });
+      await batch10.commit();
+      console.log('✅ Refacciones migradas');
+    }
+
     console.log('🎉 ¡Migración completada exitosamente!');
     console.log('📊 Resumen:');
     console.log(`   - ${devices.length} dispositivos`);
@@ -164,6 +178,7 @@ export async function migrateToFirebase() {
     console.log(`   - ${goals.length} metas`);
     console.log(`   - ${suppliers.length} proveedores`);
     console.log(`   - ${reviewers.length} revisores`);
+    console.log(`   - ${parts.length} refacciones`);
     
     return {
       success: true,
@@ -179,7 +194,8 @@ export async function migrateToFirebase() {
         expenses: expenses.length,
         goals: goals.length,
         suppliers: suppliers.length,
-        reviewers: reviewers.length
+        reviewers: reviewers.length,
+        parts: parts.length
       }
     };
 
@@ -208,7 +224,8 @@ export function clearLocalStorage() {
     'iphone_tracker_monthly_expenses',
     'iphone_tracker_monthly_goals',
     'iphone_tracker_suppliers',
-    'iphone_tracker_reviewers'
+    'iphone_tracker_reviewers',
+    'iphone_tracker_parts'
   ];
 
   keys.forEach(key => localStorage.removeItem(key));

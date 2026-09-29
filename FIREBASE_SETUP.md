@@ -100,6 +100,9 @@ Firebase creará automáticamente estas colecciones:
 - `monthlyExpenses` - Gastos mensuales
 - `monthlyGoals` - Metas mensuales
 - `meta` - Metadatos (proveedores, revisores)
+- `parts` - Refacciones (baterías, pantallas y otras piezas de iPhone)
+
+> 🔧 **Nota sobre `parts`:** la colección se crea automáticamente al guardar tu primera refacción desde la pestaña "Refacciones". No necesitas crearla manualmente ni definir índices extra (solo se hacen lecturas simples de toda la colección). Verifica que las Reglas de Seguridad cubran `/{document=**}` (ya lo hacen con el bloque del Paso 6), así `parts` queda incluida sin pasos adicionales.
 
 ## 🔄 Migración de Datos Locales
 

@@ -95,8 +95,9 @@ export const firebaseSales = {
   },
   
   add: async (sale: Sale): Promise<void> => {
+    // setDoc con id explícito: permite actualizar la venta luego (refacciones)
     const { id, ...data } = sale;
-    await addDoc(collection(db, 'sales'), data);
+    await setDoc(doc(db, 'sales', id), data);
   },
   
   update: async (sale: Sale): Promise<void> => {
@@ -215,8 +216,9 @@ export const firebaseRepairs = {
   },
   
   add: async (repair: Repair): Promise<void> => {
+    // setDoc con id explícito: permite actualizar la reparación luego (refacciones)
     const { id, ...data } = repair;
-    await addDoc(collection(db, 'repairs'), data);
+    await setDoc(doc(db, 'repairs', id), data);
   },
   
   update: async (repair: Repair): Promise<void> => {
@@ -260,9 +262,23 @@ export const firebaseGoals = {
     return snapshot.docs.map(docToData);
   },
   
-  add: async (goal: MonthlyGoal): Promise<void> => {
+  // Upsert por mes: si ya existe una meta para ese mes se actualiza en vez de duplicar.
+  save: async (goal: MonthlyGoal): Promise<void> => {
     const { id, ...data } = goal;
-    await addDoc(collection(db, 'monthlyGoals'), data);
+    const q = query(collection(db, 'monthlyGoals'), where('month', '==', goal.month));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      await updateDoc(doc(db, 'monthlyGoals', snap.docs[0].id), data);
+    } else {
+      await setDoc(doc(db, 'monthlyGoals', goal.id), data);
+    }
+    try {
+      const GOALS_KEY = 'iphone_tracker_monthly_goals';
+      const existing = JSON.parse(localStorage.getItem(GOALS_KEY) || '[]');
+      const idx = existing.findIndex((g: any) => g.month === goal.month);
+      if (idx >= 0) existing[idx] = goal; else existing.push(goal);
+      localStorage.setItem(GOALS_KEY, JSON.stringify(existing));
+    } catch { /* respaldo local opcional */ }
   },
   
   update: async (goal: MonthlyGoal): Promise<void> => {
@@ -297,5 +313,30 @@ export const firebaseMeta = {
   
   saveReviewers: async (reviewers: string[]): Promise<void> => {
     await updateDoc(doc(db, 'meta', 'reviewers'), { list: reviewers });
+  }
+};
+
+// ============ PARTS (Refacciones) ============
+import { Part } from './types';
+
+export const firebaseParts = {
+  getAll: async (): Promise<Part[]> => {
+    const q = query(collection(db, 'parts'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docToData);
+  },
+
+  add: async (part: Part): Promise<void> => {
+    const { id, ...data } = part;
+    await setDoc(doc(db, 'parts', id), data);
+  },
+
+  update: async (part: Part): Promise<void> => {
+    const { id, ...data } = part;
+    await updateDoc(doc(db, 'parts', id), data);
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await deleteDoc(doc(db, 'parts', id));
   }
 };
