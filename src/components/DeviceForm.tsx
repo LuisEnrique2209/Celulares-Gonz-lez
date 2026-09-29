@@ -11,6 +11,8 @@ interface Props {
 }
 
 export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Props) {
+  const [isRefaccion, setIsRefaccion] = useState(false);
+  const [quantity, setQuantity] = useState('1');
   const [imei, setImei] = useState('');
   const [model, setModel] = useState('');
   const [color, setColor] = useState('');
@@ -29,6 +31,8 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
 
   useEffect(() => {
     if (editingDevice) {
+      setIsRefaccion(!!editingDevice.isRefaccion);
+      setQuantity((editingDevice.quantity ?? 1).toString());
       setImei(editingDevice.imei);
       setModel(editingDevice.model);
       setColor(editingDevice.color);
@@ -49,25 +53,30 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const quantityNum = Math.max(0, parseInt(quantity) || 0);
+    const purchasePriceNum = parseFloat(purchasePrice) || 0;
     const device: Device = {
       id: editingDevice?.id || generateId(),
-      imei,
+      imei: isRefaccion ? (imei || `REF-${generateId().slice(0, 8).toUpperCase()}`) : imei,
       model,
       color,
       storage,
       purchaseDate,
       arrivalDate,
-      purchasePrice: parseFloat(purchasePrice) || 0,
+      purchasePrice: purchasePriceNum,
       importExpenses: parseFloat(importExpenses) || 0,
       shippingExpenses: parseFloat(shippingExpenses) || 0,
       otherExpenses: parseFloat(otherExpenses) || 0,
-      status,
+      status: isRefaccion ? (quantityNum > 0 ? 'in_stock' : 'sold') : status,
       lotId,
       notes,
       salePrice: salePrice ? parseFloat(salePrice) : undefined,
       saleDate: saleDate || undefined,
       checked: editingDevice?.checked || false,
       checkDate: editingDevice?.checkDate || undefined,
+      isRefaccion: isRefaccion || undefined,
+      quantity: isRefaccion ? quantityNum : undefined,
+      unitCost: isRefaccion ? purchasePriceNum : undefined,
     };
     onSave(device);
   };
@@ -97,7 +106,7 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">
-          {editingDevice ? 'Editar Dispositivo' : 'Agregar Dispositivo'}
+          {editingDevice ? (isRefaccion ? 'Editar Refacción' : 'Editar Dispositivo') : (isRefaccion ? 'Agregar Refacción' : 'Agregar Dispositivo')}
         </h1>
         <button onClick={onCancel} className="text-sm text-gray-500 hover:text-gray-700">
           ← Volver
@@ -105,6 +114,51 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
+        {/* Tipo de artículo */}
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Tipo de Artículo</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setIsRefaccion(false)}
+              className={`px-4 py-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                !isRefaccion
+                  ? 'bg-blue-50 border-blue-500 text-blue-800'
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+              }`}
+            >
+              📱 Dispositivo
+              <span className="block text-xs font-normal mt-0.5 opacity-70">Teléfono con IMEI único</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsRefaccion(true)}
+              className={`px-4 py-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                isRefaccion
+                  ? 'bg-orange-50 border-orange-500 text-orange-800'
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+              }`}
+            >
+              🔧 Refacción
+              <span className="block text-xs font-normal mt-0.5 opacity-70">Repuesto con stock (cantidad)</span>
+            </button>
+          </div>
+          {isRefaccion && (
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad en Stock *</label>
+              <input
+                type="number"
+                min="0"
+                value={quantity}
+                onChange={e => setQuantity(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">La cantidad se descontará automáticamente del inventario al vender cada refacción.</p>
+            </div>
+          )}
+        </div>
+
         {/* Lot Selection */}
         <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
           <label className="block text-sm font-medium text-blue-800 mb-2">
@@ -124,21 +178,25 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
 
         {/* Device Info */}
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Información del Dispositivo</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            {isRefaccion ? 'Información de la Refacción' : 'Información del Dispositivo'}
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {!isRefaccion && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">IMEI *</label>
+                <input
+                  type="text"
+                  value={imei}
+                  onChange={e => setImei(e.target.value)}
+                  placeholder="Ej: 353456789012345"
+                  required={!isRefaccion}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">IMEI *</label>
-              <input
-                type="text"
-                value={imei}
-                onChange={e => setImei(e.target.value)}
-                placeholder="Ej: 353456789012345"
-                required
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Modelo *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{isRefaccion ? 'Descripción / Modelo *' : 'Modelo *'}</label>
               <select
                 value={model}
                 onChange={e => setModel(e.target.value)}
@@ -153,13 +211,13 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Color *
+                Color {isRefaccion ? '' : '*'}
                 {model && <span className="text-xs text-gray-500 ml-1">(Colores de {model})</span>}
               </label>
               <select
                 value={color}
                 onChange={e => setColor(e.target.value)}
-                required
+                required={!isRefaccion}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">Seleccionar color</option>
@@ -168,20 +226,22 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Almacenamiento *</label>
-              <select
-                value={storage}
-                onChange={e => setStorage(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Seleccionar almacenamiento</option>
-                {STORAGE_OPTIONS.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
+            {!isRefaccion && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Almacenamiento *</label>
+                <select
+                  value={storage}
+                  onChange={e => setStorage(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Seleccionar almacenamiento</option>
+                  {STORAGE_OPTIONS.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
@@ -276,19 +336,21 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
         <div>
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Estado y Venta</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-              <select
-                value={status}
-                onChange={e => setStatus(e.target.value as Device['status'])}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="in_transit">En Tránsito</option>
-                <option value="received">Recibido</option>
-                <option value="in_stock">En Stock</option>
-                <option value="sold">Vendido</option>
-              </select>
-            </div>
+            {!isRefaccion && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+                <select
+                  value={status}
+                  onChange={e => setStatus(e.target.value as Device['status'])}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="in_transit">En Tránsito</option>
+                  <option value="received">Recibido</option>
+                  <option value="in_stock">En Stock</option>
+                  <option value="sold">Vendido</option>
+                </select>
+              </div>
+            )}
             {status === 'sold' && (
               <>
                 <div>
@@ -334,7 +396,7 @@ export default function DeviceForm({ lots, onSave, editingDevice, onCancel }: Pr
             type="submit"
             className="px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
-            {editingDevice ? 'Actualizar Dispositivo' : 'Agregar Dispositivo'}
+            {editingDevice ? (isRefaccion ? 'Actualizar Refacción' : 'Actualizar Dispositivo') : (isRefaccion ? 'Agregar Refacción' : 'Agregar Dispositivo')}
           </button>
           <button
             type="button"

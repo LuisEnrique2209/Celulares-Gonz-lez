@@ -28,7 +28,10 @@ export default function Inventory({ devices, lots, onEdit, onDelete }: Props) {
     const matchChecked = filterChecked === '' || 
       (filterChecked === 'checked' && d.checked) ||
       (filterChecked === 'unchecked' && !d.checked);
-    return matchSearch && matchModel && matchStatus && matchLot && matchChecked;
+    const matchTipo = filterTipo === '' ||
+      (filterTipo === 'refaccion' && !!d.isRefaccion) ||
+      (filterTipo === 'dispositivo' && !d.isRefaccion);
+    return matchSearch && matchModel && matchStatus && matchLot && matchChecked && matchTipo;
   });
 
   const getLotName = (lotId: string) => {

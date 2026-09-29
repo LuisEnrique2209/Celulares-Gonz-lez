@@ -301,6 +301,19 @@ export default function App() {
   const handleSaveSale = async (sale: Sale) => {
     try {
       if (editingSale) {
+        // Si se está editando, primero "revertimos" el descuento de inventario
+        // de la venta anterior para no descontar dos veces la misma refacción
+        if (editingSale.saleType === 'refaccion' && editingSale.deviceId) {
+          const prevDevices = await firebaseDevices.getAll();
+          const prevItem = prevDevices.find(d => d.id === editingSale.deviceId);
+          if (prevItem && prevItem.isRefaccion) {
+            await firebaseDevices.update({
+              ...prevItem,
+              quantity: (prevItem.quantity ?? 0) + (editingSale.quantity ?? 1),
+            });
+          }
+        }
+
         await firebaseSales.update(sale);
         setEditingSale(null);
         setActiveTab('sales');
@@ -308,16 +321,30 @@ export default function App() {
         await firebaseSales.add(sale);
         setLastSaleForPolicy(sale);
       }
-      // Update device status to sold
+
+      // Descontar del inventario según el tipo de venta
       const updatedDevices = await firebaseDevices.getAll();
       const deviceIndex = updatedDevices.findIndex(d => d.id === sale.deviceId);
       if (deviceIndex !== -1) {
-        updatedDevices[deviceIndex] = {
-          ...updatedDevices[deviceIndex],
-          status: 'sold',
-          salePrice: sale.salePrice,
-          saleDate: sale.saleDate,
-        };
+        if (sale.saleType === 'refaccion') {
+          // Venta de refacción: disminuir el stock (cantidad) del inventario
+          const item = updatedDevices[deviceIndex];
+          const qty = Math.max(1, sale.quantity ?? 1);
+          const newQuantity = Math.max(0, (item.quantity ?? 0) - qty);
+          updatedDevices[deviceIndex] = {
+            ...item,
+            quantity: newQuantity,
+            status: newQuantity <= 0 ? 'sold' : item.status,
+          };
+        } else {
+          // Venta de dispositivo: marcar como vendido
+          updatedDevices[deviceIndex] = {
+            ...updatedDevices[deviceIndex],
+            status: 'sold',
+            salePrice: sale.salePrice,
+            saleDate: sale.saleDate,
+          };
+        }
         await firebaseDevices.update(updatedDevices[deviceIndex]);
         setDevices(updatedDevices);
       }
@@ -333,6 +360,23 @@ export default function App() {
 
   const handleDeleteSale = async (id: string) => {
     try {
+      // Si era una venta de refacción, devolver la cantidad al inventario
+      const saleToDelete = sales.find(s => s.id === id);
+      if (saleToDelete?.saleType === 'refaccion' && saleToDelete.deviceId) {
+        const allDevices = await firebaseDevices.getAll();
+        const item = allDevices.find(d => d.id === saleToDelete.deviceId);
+        if (item && item.isRefaccion) {
+          const restoredQuantity = (item.quantity ?? 0) + (saleToDelete.quantity ?? 1);
+          await firebaseDevices.update({
+            ...item,
+            quantity: restoredQuantity,
+            status: restoredQuantity > 0 ? 'in_stock' : item.status,
+          });
+          const refreshedDevices = await firebaseDevices.getAll();
+          setDevices(refreshedDevices);
+        }
+      }
+
       await firebaseSales.delete(id);
       const updatedSales = await firebaseSales.getAll();
       setSales(updatedSales);
