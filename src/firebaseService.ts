@@ -12,7 +12,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, MonthlyGoal } from './types';
+import { Device, Lot, Sale, QualityCheck, CheckSlot, Customer, Repair, MonthlyExpense, MonthlyGoal, Refaccion } from './types';
 
 // Helper para convertir documentos de Firestore
 const docToData = (doc: any) => ({ id: doc.id, ...doc.data() });
@@ -272,6 +272,38 @@ export const firebaseGoals = {
   
   delete: async (id: string): Promise<void> => {
     await deleteDoc(doc(db, 'monthlyGoals', id));
+  }
+};
+
+// ============ REFACCIONES (inventario de repuestos) ============
+export const firebaseRefacciones = {
+  getAll: async (): Promise<Refaccion[]> => {
+    const q = query(collection(db, 'refacciones'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(docToData);
+  },
+
+  add: async (refaccion: Refaccion): Promise<void> => {
+    const { id, ...data } = refaccion;
+    // setDoc con id explícito: idempotente si se re-intenta el guardado
+    await setDoc(doc(db, 'refacciones', id), data);
+  },
+
+  update: async (refaccion: Refaccion): Promise<void> => {
+    const { id, ...data } = refaccion;
+    try {
+      await updateDoc(doc(db, 'refacciones', id), data);
+    } catch (err: any) {
+      if (err?.code === 'not-found' || err?.message?.includes('not found')) {
+        await setDoc(doc(db, 'refacciones', id), data);
+      } else {
+        throw err;
+      }
+    }
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await deleteDoc(doc(db, 'refacciones', id));
   }
 };
 
