@@ -1,1 +1,7 @@
-(empty)
+# Build artifacts
+dist/
+
+# Variables de entorno (NO subir a Git — se configuran en Vercel)
+.env
+.env.local
+.env.production
