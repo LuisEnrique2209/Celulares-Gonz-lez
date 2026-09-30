@@ -507,3 +507,102 @@ export function consumeRefaccion(id: string, qty = 1): void {
     saveRefacciones(list);
   }
 }
+
+// ============ Precios sugeridos por canal de venta (refacciones) ============
+//
+// Reglas del negocio:
+//   • Taller          → precio base × 1.30
+//   • Mercado Libre   → ((precio base × 1.25) + 59.60) / 0.7145
+//                       (margen del 25% sobre el precio, más la comisión fija
+//                        de publicación y la comisión porcentual de ML)
+//
+// El "precio base" es el precio de venta registrado en el catálogo
+// (salePrice). Si no hay precio de venta se usa el costo (costPrice), para que
+// siempre exista una referencia calculable.
+
+export const TALLER_MULTIPLIER = 1.30;              // precio × 1.30
+export const ML_MARGIN_MULTIPLIER = 1.25;          // precio × 1.25
+export const ML_FIXED_COMMISSION = 59.60;          // + $59.60 fijos
+export const ML_PERCENT_COMMISSION = 0.7145;       // ÷ 0.7145 (comisión ML)
+
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** Precio unitario base usado para las sugerencias (venta > costo) */
+export function refaccionBasePrice(r?: Refaccion | null): number {
+  if (!r) return 0;
+  const sale = Number(r.salePrice) || 0;
+  if (sale > 0) return sale;
+  return Number(r.costPrice) || 0;
+}
+
+/** Precio sugerido para venta a TALLER: precio × 1.30 */
+export function calcTallerPrice(base: number): number {
+  const b = Number(base) || 0;
+  if (b <= 0) return 0;
+  return round2(b * TALLER_MULTIPLIER);
+}
+
+/** Precio sugerido para MERCADO LIBRE: ((precio × 1.25) + 59.60) / 0.7145 */
+export function calcMercadoLibrePrice(base: number): number {
+  const b = Number(base) || 0;
+  if (b <= 0) return 0;
+  return round2((b * ML_MARGIN_MULTIPLIER + ML_FIXED_COMMISSION) / ML_PERCENT_COMMISSION);
+}
+
+/** Devuelve el precio unitario sugerido según el canal elegido */
+export function suggestedUnitPriceByChannel(
+  channel: Sale['saleChannel'],
+  r?: Refaccion | null
+): number {
+  if (!r) return 0;
+  const base = refaccionBasePrice(r);
+  if (channel === 'taller') return tallerPrice(r, base);
+  if (channel === 'mercadolibre') return mercadoLibrePrice(r, base);
+  return round2(base); // mostrador / general
+}
+
+/**
+ * Precio de TALLER guardado en la refacción. Si el usuario lo editó a mano se
+ * respeta ese valor; si viene vacío se calcula automáticamente.
+ */
+export function tallerPrice(r?: Refaccion | null, base?: number): number {
+  if (!r) return 0;
+  const saved = Number(r.suggestedTallerPrice) || 0;
+  if (saved > 0) return round2(saved);
+  return calcTallerPrice(base !== undefined ? base : refaccionBasePrice(r));
+}
+
+/** Precio de MERCADO LIBRE guardado (o calculado si viene vacío) */
+export function mercadoLibrePrice(r?: Refaccion | null, base?: number): number {
+  if (!r) return 0;
+  const saved = Number(r.suggestedMercadoLibrePrice) || 0;
+  if (saved > 0) return round2(saved);
+  return calcMercadoLibrePrice(base !== undefined ? base : refaccionBasePrice(r));
+}
+
+/**
+ * Normaliza un registro de refacción asegurando que traiga los campos nuevos
+ * (documentos antiguos de Firestore/localStorage pueden venir sin ellos).
+ */
+export function normalizeRefaccion(r: Refaccion): Refaccion {
+  const base = refaccionBasePrice(r);
+  return {
+    ...r,
+    quantity: Number(r.quantity) || 0,
+    minStock: Number(r.minStock) || 0,
+    costPrice: Number(r.costPrice) || 0,
+    salePrice: base,
+    suggestedTallerPrice: tallerPrice(r, base),
+    suggestedMercadoLibrePrice: mercadoLibrePrice(r, base),
+  };
+}
+
+/** Aplica los precios sugeridos calculados sobre el formulario antes de guardar */
+export function applySuggestedPrices(form: Refaccion): Refaccion {
+  const base = refaccionBasePrice(form);
+  return {
+    ...form,
+    suggestedTallerPrice: calcTallerPrice(base),
+    suggestedMercadoLibrePrice: calcMercadoLibrePrice(base),
+  };
+}

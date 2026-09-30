@@ -76,7 +76,25 @@ export interface Sale {
   // Las ventas antiguas no traen este campo => se asume 'dispositivo'.
   type?: 'dispositivo' | 'refaccion';
   quantity?: number; // Cantidad vendida (aplica para refacciones)
+  // Canal de venta de la refacción (aplica solo a ventas de refacción):
+  //   counter   → Mostrador / precio general del catálogo
+  //   taller    → Venta a taller (precio sugerido = costo × 1.30)
+  //   mercadolibre → Mercado Libre (precio sugerido = ((precio × 1.25) + 59.60) / 0.7145)
+  saleChannel?: 'counter' | 'taller' | 'mercadolibre';
 }
+
+// Canales de venta disponibles para refacciones
+export const REFACCION_SALE_CHANNELS: { value: NonNullable<Sale['saleChannel']>; label: string; emoji: string }[] = [
+  { value: 'counter', label: 'Mostrador / General', emoji: '🏪' },
+  { value: 'taller', label: 'Taller', emoji: '🔧' },
+  { value: 'mercadolibre', label: 'Mercado Libre', emoji: '🛒' },
+];
+
+export const SALE_CHANNEL_LABELS: Record<string, string> = {
+  counter: 'Mostrador',
+  taller: 'Taller',
+  mercadolibre: 'Mercado Libre',
+};
 
 // Ventas antiguas (sin campo type) se consideran ventas de dispositivos
 export const isRefaccionSale = (s: { type?: string }) => s.type === 'refaccion';
@@ -185,6 +203,11 @@ export interface Refaccion {
   location?: string;         // Estante / casillero
   notes?: string;
   createdAt: string;
+  // ---- Precios sugeridos por canal de venta ----
+  // Se calculan automáticamente desde el precio base (precio de venta), pero
+  // pueden editarse manualmente si se quiere un precio distinto.
+  suggestedTallerPrice?: number;      // Taller: precio × 1.30
+  suggestedMercadoLibrePrice?: number; // Mercado Libre: ((precio × 1.25) + 59.60) / 0.7145
 }
 
 export type TabType = 'dashboard' | 'inventory' | 'lots' | 'sales' | 'financial' | 'customers' | 'repairs' | 'goals' | 'quality-check' | 'add-device' | 'add-lot' | 'add-sale' | 'add-check' | 'add-repair' | 'check-lot' | 'admin';
