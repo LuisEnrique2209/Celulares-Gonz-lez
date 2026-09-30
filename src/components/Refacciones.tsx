@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Refaccion } from '../types';
+import { Refaccion, REFACCION_QUALITIES } from '../types';
 import {
   formatCurrency,
   formatDate,
@@ -10,7 +10,11 @@ import {
   calcMercadoLibrePrice,
   tallerPrice,
   mercadoLibrePrice,
+  buildRefaccionName,
+  getSuppliers,
+  registerSupplier,
 } from '../store';
+import { REFACCION_MODEL_BRANDS, getRefaccionModelsByBrand } from '../phoneModels';
 
 interface Props {
   refacciones: Refaccion[];
@@ -22,7 +26,7 @@ const emptyForm = (): Refaccion => ({
   id: '',
   name: '',
   category: 'Baterías',
-  brand: '',
+  brand: 'Diagnostico', // calidad: Diagnostico | Original
   compatibleModels: '',
   quantity: 0,
   minStock: 0,
@@ -43,6 +47,13 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<Refaccion>(emptyForm());
   const [isNew, setIsNew] = useState(true);
+  // ---- Búsqueda de modelos compatibles (marca → modelo) ----
+  const [modelBrand, setModelBrand] = useState('Apple');
+  const [modelSearch, setModelSearch] = useState('');
+  // El nombre se genera solo (categoría + modelo + calidad), pero se puede
+  // escribir uno a mano con esta opción.
+  const [manualName, setManualName] = useState(false);
+  const [customName, setCustomName] = useState('');
 
   // Todos los campos se leen con valor por defecto para evitar errores si
   // un documento viene incompleto desde Firestore.
@@ -82,6 +93,10 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
   const openNew = () => {
     setForm(emptyForm());
     setIsNew(true);
+    setModelBrand('Apple');
+    setModelSearch('');
+    setManualName(false);
+    setCustomName('');
     setShowForm(true);
   };
 
@@ -96,23 +111,69 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
       suggestedMercadoLibrePrice: mercadoLibrePrice(r, base),
     });
     setIsNew(false);
+    // Preselecciona la marca según los modelos ya guardados
+    const firstModel = String(r.compatibleModels || '').split(',')[0].trim();
+    const detected = REFACCION_MODEL_BRANDS.find(b =>
+      getRefaccionModelsByBrand(b.brand).some(m => firstModel.toLowerCase() === m.toLowerCase())
+    );
+    setModelBrand(detected ? detected.brand : 'Apple');
+    setModelSearch('');
+    setManualName(false);
+    setCustomName(r.name || '');
     setShowForm(true);
   };
 
+  // ---- Modelos compatibles: búsqueda por marca y modelo ----
+  const selectedModels = String(form.compatibleModels || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const brandModels = getRefaccionModelsByBrand(modelBrand);
+  const modelQuery = modelSearch.trim().toLowerCase();
+  const filteredModels = brandModels.filter(m => m.toLowerCase().includes(modelQuery));
+
+  const toggleModel = (model: string) => {
+    const current = String(form.compatibleModels || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    const exists = current.some(m => m.toLowerCase() === model.toLowerCase());
+    const next = exists ? current.filter(m => m.toLowerCase() !== model.toLowerCase()) : [...current, model];
+    setForm(prev => ({ ...prev, compatibleModels: next.join(', ') }));
+  };
+
+  const clearModels = () => setForm(prev => ({ ...prev, compatibleModels: '' }));
+
+  // Nombre automático: Categoría + Modelo compatible + Calidad
+  const autoName = buildRefaccionName(form.category, form.compatibleModels, form.brand);
+  const finalName = manualName ? customName.trim() : autoName;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) {
-      alert('Escribe el nombre de la refacción');
+    if (!finalName) {
+      alert('Elige un modelo compatible para generar el nombre de la refacción');
       return;
     }
-    const base = Number(form.salePrice) || Number(form.costPrice) || 0;
+    const cost = Number(form.costPrice) || 0;
+    const sale = Number(form.salePrice) || 0;
+    if (cost <= 0 && sale <= 0) {
+      alert('Captura al menos uno de los dos precios: precio de compra O precio de venta.\nCon cualquiera de los dos se calculan automáticamente los precios de Taller y Mercado Libre.');
+      return;
+    }
+    // Uno solo precio: si capturas compra y dejaste venta vacía → venta = compra
+    // (así nunca queda "0" en el catálogo); si solo capturas venta → costo 0.
+    const resolvedCost = cost > 0 ? cost : 0;
+    const resolvedSale = sale > 0 ? sale : cost > 0 ? cost : 0;
+    const base = resolvedSale > 0 ? resolvedSale : resolvedCost;
     const payload: Refaccion = {
       ...form,
       id: form.id || generateId(),
+      name: finalName,
       quantity: Number(form.quantity) || 0,
       minStock: Number(form.minStock) || 0,
-      costPrice: Number(form.costPrice) || 0,
-      salePrice: Number(form.salePrice) || 0,
+      costPrice: resolvedCost,
+      salePrice: resolvedSale,
       // Precios sugeridos: se conservan los editados a mano y si están vacíos
       // se calculan con las reglas del negocio.
       suggestedTallerPrice:
@@ -124,6 +185,8 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
           ? Number(form.suggestedMercadoLibrePrice)
           : calcMercadoLibrePrice(base),
     };
+    // El proveedor se guarda automáticamente para futuras compras
+    registerSupplier(payload.supplier);
     onSave(payload);
     setShowForm(false);
   };
@@ -381,15 +444,36 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Nombre automático: Categoría + Modelo compatible + Calidad */}
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Nombre *</label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={e => setForm({ ...form, name: e.target.value })}
-                    placeholder="Batería iPhone 11 / Pantalla iPhone 12 Pro..."
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    Nombre (se genera automáticamente)
+                  </label>
+                  {manualName ? (
+                    <input
+                      type="text"
+                      value={customName}
+                      onChange={e => setCustomName(e.target.value)}
+                      placeholder="Escribe el nombre a mano…"
+                      className="w-full px-3 py-2 border border-purple-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  ) : (
+                    <div className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-800 font-medium min-h-[38px]">
+                      {autoName || 'Selecciona un modelo compatible para generar el nombre'}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between mt-1">
+                    <p className="text-[11px] text-gray-400">
+                      Fórmula: categoría + modelo compatible + calidad. Ej: «Batería iPhone 13 Diagnostico»
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { if (!manualName) setCustomName(autoName); setManualName(!manualName); }}
+                      className="text-[11px] text-purple-600 hover:text-purple-800 font-medium whitespace-nowrap ml-2"
+                    >
+                      {manualName ? '↩ Usar nombre automático' : '✏️ Escribir nombre a mano'}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Categoría</label>
@@ -402,24 +486,91 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Marca / calidad</label>
-                  <input
-                    type="text"
-                    value={form.brand || ''}
-                    onChange={e => setForm({ ...form, brand: e.target.value })}
-                    placeholder="Original, OEM, Genérica..."
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Calidad *</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {REFACCION_QUALITIES.map(q => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setForm(prev => ({ ...prev, brand: q }))}
+                        className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                          form.brand === q
+                            ? q === 'Original'
+                              ? 'bg-green-600 text-white border-green-600'
+                              : 'bg-amber-500 text-white border-amber-500'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                        }`}
+                      >
+                        {q === 'Original' ? 'Original' : 'Diagnóstico'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                {/* Modelos compatibles: búsqueda por marca → modelo (iPhone 12 en adelante) */}
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Modelos compatibles</label>
-                  <input
-                    type="text"
-                    value={form.compatibleModels || ''}
-                    onChange={e => setForm({ ...form, compatibleModels: e.target.value })}
-                    placeholder="iPhone 11, 11 Pro, 11 Pro Max"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    Modelos compatibles * <span className="font-normal text-gray-400">(busca por marca y modelo)</span>
+                  </label>
+                  <div className="border border-gray-200 rounded-xl p-3 space-y-2 bg-gray-50/50">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <select
+                        value={modelBrand}
+                        onChange={e => { setModelBrand(e.target.value); setModelSearch(''); }}
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      >
+                        {REFACCION_MODEL_BRANDS.map(b => <option key={b.brand} value={b.brand}>{b.brand}</option>)}
+                      </select>
+                      <input
+                        type="text"
+                        value={modelSearch}
+                        onChange={e => setModelSearch(e.target.value)}
+                        placeholder={modelBrand === 'Apple' ? 'Buscar modelo (ej: 13 Pro)…' : 'Buscar modelo…'}
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                    {modelBrand === 'Apple' && (
+                      <p className="text-[11px] text-gray-400">
+                        📱 Solo se muestran iPhones del 12 hacia arriba.
+                      </p>
+                    )}
+                    <div className="max-h-40 overflow-y-auto flex flex-wrap gap-2">
+                      {filteredModels.length === 0 && (
+                        <p className="text-xs text-gray-400 py-1">No hay modelos que coincidan con la búsqueda.</p>
+                      )}
+                      {filteredModels.map(m => {
+                        const active = selectedModels.some(s => s.toLowerCase() === m.toLowerCase());
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => toggleModel(m)}
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                              active
+                                ? 'bg-purple-600 text-white border-purple-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-purple-400'
+                            }`}
+                          >
+                            {active ? '✓ ' : ''}{m}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedModels.length > 0 && (
+                      <div className="flex items-center justify-between pt-1 border-t border-gray-100">
+                        <p className="text-xs text-gray-600">
+                          Seleccionados: <b>{selectedModels.join(', ')}</b>
+                        </p>
+                        <button
+                          type="button"
+                          onClick={clearModels}
+                          className="text-xs text-red-500 hover:text-red-700 font-medium ml-2 whitespace-nowrap"
+                        >
+                          Limpiar
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Existencias</label>
@@ -442,28 +593,33 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Precio de compra</label>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Precio de compra (costo)</label>
                   <input
                     type="number"
                     min="0"
                     step="0.01"
-                    value={form.costPrice}
+                    value={form.costPrice || ''}
+                    placeholder="Opcional — captura solo uno de los dos"
                     onChange={e => setCostPriceValue(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Precio de venta (base)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.salePrice}
-                    onChange={e => setSalePriceValue(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-gray-300"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">
-                    Es el precio con el que se calculan las sugerencias de abajo.
+                    Si solo capturas este precio, las sugerencias se calculan con él.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Precio de venta</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.salePrice || ''}
+                    placeholder="Opcional — captura solo uno de los dos"
+                    onChange={e => setSalePriceValue(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-gray-300"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Con este precio (o con el de compra si está vacío) se calculan Taller y Mercado Libre.
                   </p>
                 </div>
 
@@ -521,10 +677,18 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Proveedor</label>
                   <input
                     type="text"
+                    list="refaccion-suppliers"
                     value={form.supplier || ''}
                     onChange={e => setForm({ ...form, supplier: e.target.value })}
+                    placeholder="Escribe o elige uno ya registrado…"
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
+                  <datalist id="refaccion-suppliers">
+                    {getSuppliers().map(s => <option key={s} value={s} />)}
+                  </datalist>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Al guardar, este proveedor queda guardado para las próximas refacciones.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Ubicación / estante</label>

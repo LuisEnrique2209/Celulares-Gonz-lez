@@ -786,3 +786,27 @@ export function addCustomBrand(brand: string): void {
     PHONE_BRANDS.unshift({ brand, models: [] });
   }
 }
+
+// ============ Modelos para registrar refacciones (rápido) ============
+// Para el registro de refacciones solo se ofrecen iPhones del 12 hacia
+// arriba (incluye las familias 12, 13, 14, 15 y 16 con sus variantes).
+export const REFACCION_IPHONE_MODELS: string[] = [
+  'iPhone 16 Pro Max', 'iPhone 16 Pro', 'iPhone 16 Plus', 'iPhone 16',
+  'iPhone 16e',
+  'iPhone 15 Pro Max', 'iPhone 15 Pro', 'iPhone 15 Plus', 'iPhone 15',
+  'iPhone 14 Pro Max', 'iPhone 14 Pro', 'iPhone 14 Plus', 'iPhone 14',
+  'iPhone 13 Pro Max', 'iPhone 13 Pro', 'iPhone 13', 'iPhone 13 Mini',
+  'iPhone 12 Pro Max', 'iPhone 12 Pro', 'iPhone 12', 'iPhone 12 Mini',
+];
+
+// Marcas disponibles al registrar refacciones. Apple usa la lista recortada
+// (iPhone 12 o más nuevo); las demás marcas muestran todos sus modelos.
+export const REFACCION_MODEL_BRANDS: { brand: string; models: string[] }[] = [
+  { brand: 'Apple', models: REFACCION_IPHONE_MODELS },
+  ...PHONE_BRANDS.filter(b => b.brand !== 'Apple'),
+];
+
+export function getRefaccionModelsByBrand(brand: string): string[] {
+  if (brand === 'Apple') return REFACCION_IPHONE_MODELS;
+  return getModelsByBrand(brand);
+}
