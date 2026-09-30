@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import { Refaccion } from '../types';
-import { formatCurrency, formatDate, generateId, REFACCION_CATEGORIES } from '../store';
+import {
+  formatCurrency,
+  formatDate,
+  generateId,
+  REFACCION_CATEGORIES,
+  refaccionBasePrice,
+  calcTallerPrice,
+  calcMercadoLibrePrice,
+  tallerPrice,
+  mercadoLibrePrice,
+} from '../store';
 
 interface Props {
   refacciones: Refaccion[];
@@ -22,6 +32,8 @@ const emptyForm = (): Refaccion => ({
   location: '',
   notes: '',
   createdAt: new Date().toISOString(),
+  suggestedTallerPrice: 0,
+  suggestedMercadoLibrePrice: 0,
 });
 
 export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
@@ -74,7 +86,15 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
   };
 
   const openEdit = (r: Refaccion) => {
-    setForm({ ...emptyForm(), ...r });
+    // Si el registro no trae precios sugeridos (documentos antiguos), se
+    // calculan con las fórmulas del negocio al abrir el formulario.
+    const base = refaccionBasePrice(r);
+    setForm({
+      ...emptyForm(),
+      ...r,
+      suggestedTallerPrice: tallerPrice(r, base),
+      suggestedMercadoLibrePrice: mercadoLibrePrice(r, base),
+    });
     setIsNew(false);
     setShowForm(true);
   };
@@ -85,6 +105,7 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
       alert('Escribe el nombre de la refacción');
       return;
     }
+    const base = Number(form.salePrice) || Number(form.costPrice) || 0;
     const payload: Refaccion = {
       ...form,
       id: form.id || generateId(),
@@ -92,10 +113,67 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
       minStock: Number(form.minStock) || 0,
       costPrice: Number(form.costPrice) || 0,
       salePrice: Number(form.salePrice) || 0,
+      // Precios sugeridos: se conservan los editados a mano y si están vacíos
+      // se calculan con las reglas del negocio.
+      suggestedTallerPrice:
+        Number(form.suggestedTallerPrice) > 0
+          ? Number(form.suggestedTallerPrice)
+          : calcTallerPrice(base),
+      suggestedMercadoLibrePrice:
+        Number(form.suggestedMercadoLibrePrice) > 0
+          ? Number(form.suggestedMercadoLibrePrice)
+          : calcMercadoLibrePrice(base),
     };
     onSave(payload);
     setShowForm(false);
   };
+
+  // ---- Precios sugeridos en el formulario ----
+  // Precio base usado para las fórmulas (precio de venta, o costo si no hay venta)
+  const formBase = refaccionBasePrice(form);
+  const autoTaller = calcTallerPrice(formBase);
+  const autoML = calcMercadoLibrePrice(formBase);
+
+  /** Cambia el precio de venta/costo y recalcula automáticamente las sugerencias */
+  const setSalePriceValue = (value: number) => {
+    setForm(prev => {
+      const next = { ...prev, salePrice: value };
+      const base = refaccionBasePrice(next);
+      return {
+        ...next,
+        suggestedTallerPrice: calcTallerPrice(base),
+        suggestedMercadoLibrePrice: calcMercadoLibrePrice(base),
+      };
+    });
+  };
+
+  const setCostPriceValue = (value: number) => {
+    setForm(prev => {
+      const next = { ...prev, costPrice: value };
+      // Si no hay precio de venta, el costo es la base de las sugerencias
+      if (!(Number(next.salePrice) || 0)) {
+        const base = refaccionBasePrice(next);
+        return {
+          ...next,
+          suggestedTallerPrice: calcTallerPrice(base),
+          suggestedMercadoLibrePrice: calcMercadoLibrePrice(base),
+        };
+      }
+      return next;
+    });
+  };
+
+  /** Recalcula ambas sugerencias con las fórmulas (descarta ediciones manuales) */
+  const recalcSuggested = () => {
+    setForm(prev => ({
+      ...prev,
+      suggestedTallerPrice: calcTallerPrice(refaccionBasePrice(prev)),
+      suggestedMercadoLibrePrice: calcMercadoLibrePrice(refaccionBasePrice(prev)),
+    }));
+  };
+
+  const tallerEdited = Number(form.suggestedTallerPrice) > 0 && Number(form.suggestedTallerPrice) !== autoTaller;
+  const mlEdited = Number(form.suggestedMercadoLibrePrice) > 0 && Number(form.suggestedMercadoLibrePrice) !== autoML;
 
   const adjustQty = (r: Refaccion, delta: number) => {
     const next = Math.max(0, (Number(r.quantity) || 0) + delta);
@@ -186,6 +264,8 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Estado</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Costo</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Venta</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Taller (×1.30)</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Mercado Libre</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Proveedor</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Acciones</th>
               </tr>
@@ -209,6 +289,14 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
                   <td className="px-4 py-3">{stockBadge(r)}</td>
                   <td className="px-4 py-3 text-sm text-gray-900">{formatCurrency(Number(r.costPrice) || 0)}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-gray-900">{formatCurrency(Number(r.salePrice) || 0)}</td>
+                  <td className="px-4 py-3">
+                    <p className="text-sm font-semibold text-orange-700">{formatCurrency(tallerPrice(r))}</p>
+                    <p className="text-[10px] text-gray-400">precio × 1.30</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="text-sm font-semibold text-sky-700">{formatCurrency(mercadoLibrePrice(r))}</p>
+                    <p className="text-[10px] text-gray-400">(precio × 1.25 + 59.60) ÷ 0.7145</p>
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-600">{r.supplier || '—'}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -244,6 +332,8 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
               <div><span className="text-xs text-gray-500">Mínimo:</span> <span className="font-medium">{Number(r.minStock) || 0}</span></div>
               <div><span className="text-xs text-gray-500">Costo:</span> <span className="font-medium">{formatCurrency(Number(r.costPrice) || 0)}</span></div>
               <div><span className="text-xs text-gray-500">Venta:</span> <span className="font-semibold">{formatCurrency(Number(r.salePrice) || 0)}</span></div>
+              <div><span className="text-xs text-orange-600">🔧 Taller (×1.30):</span> <span className="font-semibold text-orange-700">{formatCurrency(tallerPrice(r))}</span></div>
+              <div><span className="text-xs text-sky-600">🛒 Mercado Libre:</span> <span className="font-semibold text-sky-700">{formatCurrency(mercadoLibrePrice(r))}</span></div>
             </div>
             {r.compatibleModels ? <p className="text-xs text-gray-500 mb-3">Compatible: {r.compatibleModels}</p> : null}
             <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
@@ -358,20 +448,74 @@ export default function Refacciones({ refacciones, onSave, onDelete }: Props) {
                     min="0"
                     step="0.01"
                     value={form.costPrice}
-                    onChange={e => setForm({ ...form, costPrice: Number(e.target.value) })}
+                    onChange={e => setCostPriceValue(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Precio de venta</label>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Precio de venta (base)</label>
                   <input
                     type="number"
                     min="0"
                     step="0.01"
                     value={form.salePrice}
-                    onChange={e => setForm({ ...form, salePrice: Number(e.target.value) })}
+                    onChange={e => setSalePriceValue(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Es el precio con el que se calculan las sugerencias de abajo.
+                  </p>
+                </div>
+
+                {/* Precios sugeridos por canal */}
+                <div className="md:col-span-2 bg-gradient-to-r from-orange-50 to-sky-50 border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-bold text-gray-800">💡 Precios sugeridos por canal de venta</h4>
+                    <button
+                      type="button"
+                      onClick={recalcSuggested}
+                      className="text-xs px-2.5 py-1 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 font-medium"
+                    >
+                      ↺ Recalcular
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-orange-700 mb-1">🔧 Taller — precio × 1.30</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.suggestedTallerPrice ?? autoTaller}
+                        onChange={e => setForm({ ...form, suggestedTallerPrice: Number(e.target.value) })}
+                        className="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+                      />
+                      {tallerEdited ? (
+                        <p className="text-[11px] text-orange-600 mt-1">Editado a mano (la fórmula da {formatCurrency(autoTaller)})</p>
+                      ) : (
+                        <p className="text-[11px] text-gray-500 mt-1">Calculado automáticamente</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-sky-700 mb-1">🛒 Mercado Libre — (precio × 1.25 + 59.60) ÷ 0.7145</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.suggestedMercadoLibrePrice ?? autoML}
+                        onChange={e => setForm({ ...form, suggestedMercadoLibrePrice: Number(e.target.value) })}
+                        className="w-full px-3 py-2 border border-sky-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-400"
+                      />
+                      {mlEdited ? (
+                        <p className="text-[11px] text-sky-600 mt-1">Editado a mano (la fórmula da {formatCurrency(autoML)})</p>
+                      ) : (
+                        <p className="text-[11px] text-gray-500 mt-1">Calculado automáticamente (incluye comisión de ML)</p>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-3">
+                    Estos precios se aplican solos al registrar la venta en <b>Ventas → Refacción</b>, según el canal que marques.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Proveedor</label>

@@ -1,6 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Sale, Device, Lot, Customer, Refaccion } from '../types';
-import { generateId, formatCurrency, getCustomers, addOrUpdateCustomer } from '../store';
+import { Sale, Device, Lot, Customer, Refaccion, REFACCION_SALE_CHANNELS } from '../types';
+import {
+  generateId,
+  formatCurrency,
+  getCustomers,
+  addOrUpdateCustomer,
+  refaccionBasePrice,
+  tallerPrice,
+  mercadoLibrePrice,
+  calcTallerPrice,
+  calcMercadoLibrePrice,
+  suggestedUnitPriceByChannel,
+} from '../store';
 import { firebaseCustomers } from '../firebaseService';
 import CustomerSelector from './CustomerSelector';
 
@@ -18,6 +29,9 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
   const [saleType, setSaleType] = useState<'dispositivo' | 'refaccion'>('dispositivo');
   const [deviceId, setDeviceId] = useState('');
   const [refaccionId, setRefaccionId] = useState('');
+  // Canal de venta de la refacción: mostrador, taller o Mercado Libre.
+  // Al marcarlo se aplica automáticamente el precio sugerido correspondiente.
+  const [saleChannel, setSaleChannel] = useState<'counter' | 'taller' | 'mercadolibre'>('counter');
   const [quantity, setQuantity] = useState('1');
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0]);
   const [salePrice, setSalePrice] = useState('');
@@ -37,6 +51,9 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
       setSaleType(editingSale.type === 'refaccion' ? 'refaccion' : 'dispositivo');
       setDeviceId(editingSale.deviceId);
       setRefaccionId(editingSale.type === 'refaccion' ? editingSale.deviceId : '');
+      setSaleChannel(
+        editingSale.type === 'refaccion' && editingSale.saleChannel ? editingSale.saleChannel : 'counter'
+      );
       setQuantity(String(editingSale.quantity || 1));
       setSaleDate(editingSale.saleDate);
       setSalePrice(editingSale.salePrice.toString());
@@ -65,13 +82,28 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
   const profit = salePriceNum - baseCost;
   const profitMargin = baseCost > 0 ? (profit / baseCost) * 100 : 0;
 
+  // ---- Precios sugeridos por canal (refacciones) ----
+  const refaccionBase = refaccionBasePrice(selectedRefaccion);
+  const unitTaller = tallerPrice(selectedRefaccion, refaccionBase);
+  const unitML = mercadoLibrePrice(selectedRefaccion, refaccionBase);
+  const suggestedUnit = suggestedUnitPriceByChannel(saleChannel, selectedRefaccion);
+  const suggestedTotal = suggestedUnit * quantityNum;
+
+  /** Aplica el precio del canal elegido al campo de precio de venta */
+  const applyChannelPrice = (channel: 'counter' | 'taller' | 'mercadolibre') => {
+    setSaleChannel(channel);
+    const unit = suggestedUnitPriceByChannel(channel, selectedRefaccion);
+    const qty = Math.max(1, parseInt(quantity) || 1);
+    if (unit > 0) setSalePrice((unit * qty).toFixed(2));
+  };
+
   // Al elegir una refacción, autocompletar el precio con su precio de venta x cantidad
   const handleSelectRefaccion = (id: string) => {
     setRefaccionId(id);
     const r = refaccionList.find(x => x.id === id);
     if (r) {
       const qty = Math.max(1, parseInt(quantity) || 1);
-      const suggested = (Number(r.salePrice) || 0) * qty;
+      const suggested = suggestedUnitPriceByChannel(saleChannel, r) * qty;
       if (suggested > 0) setSalePrice(suggested.toFixed(2));
     }
   };
@@ -151,6 +183,8 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
       saleDate,
       salePrice: parseFloat(salePrice) || 0,
       quantity: qty,
+      // Canal elegido: mostrador / taller / Mercado Libre
+      saleChannel,
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim(),
       customerEmail: customerEmail.trim() || undefined,
@@ -362,11 +396,65 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
                   <option value="">Seleccionar refacción</option>
                   {availableRefacciones.map(r => (
                     <option key={r.id} value={r.id}>
-                      {r.name} ({Number(r.quantity) || 0} en stock) — venta ${Number(r.salePrice || 0).toLocaleString('es-MX')} c/u
+                      {r.name} ({Number(r.quantity) || 0} en stock) — venta ${refaccionBasePrice(r).toLocaleString('es-MX')} c/u · taller ${tallerPrice(r).toLocaleString('es-MX')} · ML ${mercadoLibrePrice(r).toLocaleString('es-MX')}
                     </option>
                   ))}
                 </select>
               </div>
+
+              {/* Checklist de canal de venta: define el precio sugerido a aplicar */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  ¿A quién se le vende esta refacción? *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {REFACCION_SALE_CHANNELS.map(ch => {
+                    const unit = suggestedUnitPriceByChannel(ch.value, selectedRefaccion);
+                    const active = saleChannel === ch.value;
+                    const styles =
+                      ch.value === 'taller'
+                        ? 'border-orange-400 bg-orange-50 text-orange-800'
+                        : ch.value === 'mercadolibre'
+                        ? 'border-sky-400 bg-sky-50 text-sky-800'
+                        : 'border-gray-500 bg-gray-50 text-gray-800';
+                    return (
+                      <button
+                        key={ch.value}
+                        type="button"
+                        onClick={() => applyChannelPrice(ch.value)}
+                        className={`p-3 rounded-xl border-2 text-left transition-colors ${
+                          active ? styles : 'border-gray-200 bg-white hover:border-gray-300 text-gray-700'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            checked={active}
+                            readOnly
+                            className="pointer-events-none accent-current"
+                          />
+                          <span className="text-base">{ch.emoji}</span>
+                          <span className="text-sm font-semibold">{ch.label}</span>
+                        </span>
+                        <span className="block text-xs mt-1 opacity-80">
+                          {ch.value === 'taller'
+                            ? 'precio × 1.30'
+                            : ch.value === 'mercadolibre'
+                            ? '(precio × 1.25 + 59.60) ÷ 0.7145'
+                            : 'precio del catálogo'}
+                        </span>
+                        <span className="block text-sm font-bold mt-1">
+                          {unit > 0 ? `$${unit.toLocaleString('es-MX', { minimumFractionDigits: 2 })} c/u` : '—'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Al marcar el canal se aplica automáticamente su precio sugerido (× cantidad). Puedes ajustarlo a mano si lo necesitas.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad *</label>
                 <input
@@ -380,7 +468,7 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
                     const r = selectedRefaccion;
                     if (r) {
                       const qty = Math.max(1, parseInt(e.target.value) || 1);
-                      const suggested = (Number(r.salePrice) || 0) * qty;
+                      const suggested = suggestedUnitPriceByChannel(saleChannel, r) * qty;
                       if (suggested > 0) setSalePrice(suggested.toFixed(2));
                     }
                   }}
@@ -417,6 +505,44 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
                     <p className="text-sm font-semibold text-purple-800">{Math.max(0, (Number(selectedRefaccion.quantity) || 0) - quantityNum)} en stock</p>
                   </div>
                 </div>
+              </div>
+
+              {/* Precios sugeridos por canal + precio a aplicar */}
+              <div className="bg-white rounded-lg p-4 border-2 border-dashed border-gray-300">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h4 className="text-sm font-semibold text-gray-700">
+                    💡 Precio sugerido — {saleChannel === 'taller' ? '🔧 Taller' : saleChannel === 'mercadolibre' ? '🛒 Mercado Libre' : '🏪 Mostrador'}
+                  </h4>
+                  {suggestedUnit > 0 && Math.abs(salePriceNum - suggestedTotal) > 0.01 && (
+                    <button
+                      type="button"
+                      onClick={() => setSalePrice(suggestedTotal.toFixed(2))}
+                      className="text-xs px-2.5 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+                    >
+                      Usar precio sugerido
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div className={`rounded-lg p-2 ${saleChannel === 'counter' ? 'bg-gray-100 ring-2 ring-gray-400' : 'bg-gray-50'}`}>
+                    <p className="text-[11px] text-gray-500">🏪 Mostrador</p>
+                    <p className="font-bold text-gray-800">${refaccionBase.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className={`rounded-lg p-2 ${saleChannel === 'taller' ? 'bg-orange-100 ring-2 ring-orange-400' : 'bg-orange-50'}`}>
+                    <p className="text-[11px] text-orange-600">🔧 Taller (×1.30)</p>
+                    <p className="font-bold text-orange-700">${unitTaller.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className={`rounded-lg p-2 ${saleChannel === 'mercadolibre' ? 'bg-sky-100 ring-2 ring-sky-400' : 'bg-sky-50'}`}>
+                    <p className="text-[11px] text-sky-600">🛒 Mercado Libre</p>
+                    <p className="font-bold text-sky-700">${unitML.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Total sugerido por {quantityNum} pza(s):{' '}
+                  <b className="text-gray-800">${suggestedTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</b>
+                  {' '}({formatCurrency(suggestedUnit)} c/u).
+                  {saleChannel === 'mercadolibre' ? ' Ya incluye comisión fija $59.60 y comisión ÷0.7145.' : ''}
+                </p>
               </div>
 
               {/* Cost breakdown */}
