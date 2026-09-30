@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Sale, Lot } from '../types';
+import { Sale, Lot, SALE_CHANNEL_LABELS, isRefaccionSale } from '../types';
 import { formatDate, formatCurrency } from '../store';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -15,11 +15,96 @@ export default function Policy({ sale, lot, onClose, onSaveObservations }: Props
   const [observations, setObservations] = useState(sale.notes || '');
   const policyRef = useRef<HTMLDivElement>(null);
 
+  const isRefaccion = isRefaccionSale(sale);
+  const quantity = Math.max(1, Number(sale.quantity) || 1);
+  const unitPrice = quantity > 0 ? (Number(sale.salePrice) || 0) / quantity : Number(sale.salePrice) || 0;
+  const channelLabel = SALE_CHANNEL_LABELS[sale.saleChannel || 'counter'] || 'Mostrador';
+  const channelEmoji = sale.saleChannel === 'taller' ? '🔧' : sale.saleChannel === 'mercadolibre' ? '🛒' : '🏪';
+
   const warrantyEndDate = new Date(sale.saleDate);
   warrantyEndDate.setMonth(warrantyEndDate.getMonth() + 1);
   const warrantyEndStr = warrantyEndDate.toISOString().split('T')[0];
 
   const generateWhatsAppMessage = () => {
+    // ---------- PÓLIZA ESPECIAL PARA REFACCIONES ----------
+    if (isRefaccion) {
+      return `🔩 *PÓLIZA DE GARANTÍA — REFACCIÓN* 🔩
+━━━━━━━━━━━━━━━━━━━━
+
+🏪 *Celulares González*
+📅 Fecha de emisión: ${formatDate(new Date().toISOString().split('T')[0])}
+
+━━━━━━━━━━━━━━━━━━━━
+*DATOS DE LA REFACCIÓN*
+━━━━━━━━━━━━━━━━━━━━
+🔩 Refacción: *${sale.model}*
+📦 Categoría: ${sale.color || '—'}
+🔢 Cantidad: *${quantity} pieza(s)*
+
+━━━━━━━━━━━━━━━━━━━━
+*DATOS DE LA COMPRA*
+━━━━━━━━━━━━━━━━━━━━
+📅 Fecha de compra: ${formatDate(sale.saleDate)}
+💰 Precio unitario: ${formatCurrency(unitPrice)}
+💵 Precio total: *${formatCurrency(sale.salePrice)}*
+${sale.paymentMethod ? `💳 Método de pago: ${sale.paymentMethod}` : ''}
+${channelLabel ? `${channelEmoji} Tipo/canal de venta: *${channelLabel}*` : ''}
+
+━━━━━━━━━━━━━━━━━━━━
+*DATOS DEL CLIENTE*
+━━━━━━━━━━━━━━━━━━━━
+👤 Nombre: ${sale.customerName}
+📞 Teléfono: ${sale.customerPhone}
+${sale.customerEmail ? `📧 Email: ${sale.customerEmail}` : ''}
+
+━━━━━━━━━━━━━━━━━━━━
+*GARANTÍA DE LA REFACCIÓN*
+━━━━━━━━━━━━━━━━━━━━
+✅ Vigencia: *1 MES (30 días naturales)* contados a partir de la fecha de compra
+📅 Inicio: ${formatDate(sale.saleDate)}
+📅 Vencimiento: *${formatDate(warrantyEndStr)}*
+📄 No se entrega póliza física; este mensaje es comprobante de garantía.
+
+*LA GARANTÍA CUBRE:*
+✓ Defectos de fabricación de la refacción
+✓ Que la pieza no encienda / no dé imagen (pantallas)
+✓ Batería que no retiene carga o se apaga sola
+✓ Fallas de función comprobadas por nuestro diagnóstico
+
+*LA GARANTÍA NO CUBRE:*
+✗ Daños por instalación realizada por terceros
+✗ Piezas mojadas, golpeadas o maltratadas
+✗ Pantallas con vidrio roto, manchas o líneas por golpe
+✗ Baterías con inflamiento por mal uso o cargadores no certificados
+✗ Desgaste normal por uso
+✗ Refacciones instaladas en equipos distintos al comprado
+
+${observations ? `━━━━━━━━━━━━━━━━━━━━
+*OBSERVACIONES*
+━━━━━━━━━━━━━━━━━━━━
+${observations}` : ''}
+
+━━━━━━━━━━━━━━━━━━━━
+*TÉRMINOS Y CONDICIONES*
+━━━━━━━━━━━━━━━━━━━━
+• Para hacer válida la garantía, presentar este mensaje y la pieza.
+• La revisión y reinstalación cubierta se realiza en Celulares González.
+• Si la falla es del equipo (no de la refacción), la mano de obra tiene costo.
+• Pasada la fecha de vencimiento, cualquier reemplazo tendrá costo.
+
+━━━━━━━━━━━━━━━━━━━━
+*ACEPTACIÓN DE TÉRMINOS*
+━━━━━━━━━━━━━━━━━━━━
+✅ Al realizar la compra de esta refacción, el cliente declara haber leído y aceptado los términos y condiciones de garantía de *Celulares González*.
+
+━━━━━━━━━━━━━━━━━━━━
+📞 Contacto: ${sale.customerPhone}
+🏪 Celulares González - Calidad Garantizada
+
+_Gracias por su compra_ 🙏`;
+    }
+
+    // ---------- PÓLIZA NORMAL PARA DISPOSITIVOS ----------
     const message = `📱 *PÓLIZA DE GARANTÍA* 📱
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -137,7 +222,9 @@ _Gracias por su compra_ 🙏`;
       
       pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
       
-      const fileName = `Poliza_${sale.customerName.replace(/\s+/g, '_')}_${sale.imei}.pdf`;
+      const fileName = isRefaccion
+        ? `Poliza_Refaccion_${sale.customerName.replace(/\s+/g, '_')}_${sale.saleDate}.pdf`
+        : `Poliza_${sale.customerName.replace(/\s+/g, '_')}_${sale.imei}.pdf`;
       pdf.save(fileName);
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -199,6 +286,341 @@ _Gracias por su compra_ 🙏`;
 
         {/* Policy Content - Letter size optimized */}
         <div className="p-6 print:p-0">
+          {isRefaccion ? (
+          /* ============ PÓLIZA ESPECIAL PARA REFACCIONES ============ */
+          <div
+            ref={policyRef}
+            style={{
+              width: '816px',
+              height: '1056px',
+              margin: '0 auto',
+              padding: '35px',
+              fontFamily: 'Arial, sans-serif',
+              background: '#ffffff',
+              position: 'relative',
+              boxSizing: 'border-box',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              textAlign: 'center',
+              marginBottom: '25px',
+              paddingBottom: '15px',
+              borderBottom: `2px solid ${colors.primary}`,
+            }}>
+              <h1 style={{
+                fontSize: '28px',
+                fontWeight: 'bold',
+                color: colors.primary,
+                margin: '0 0 6px 0',
+                letterSpacing: '1px',
+              }}>
+                CELULARES GONZÁLEZ
+              </h1>
+              <div style={{
+                fontSize: '12px',
+                color: colors.textLight,
+                letterSpacing: '2px',
+                textTransform: 'uppercase',
+              }}>
+                Póliza de Garantía — Refacción
+              </div>
+              <div style={{
+                fontSize: '10px',
+                color: colors.textLight,
+                marginTop: '6px',
+              }}>
+                Emitida el {formatDate(new Date().toISOString().split('T')[0])}
+              </div>
+            </div>
+
+            {/* Main content grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+              {/* Left column */}
+              <div>
+                {/* Refacción Info */}
+                <div style={{ marginBottom: '15px' }}>
+                  <h3 style={{
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    color: colors.primary,
+                    margin: '0 0 8px 0',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    borderBottom: `1px solid ${colors.border}`,
+                    paddingBottom: '4px',
+                  }}>
+                    Refacción
+                  </h3>
+                  <div style={{ fontSize: '10px', lineHeight: '1.7', color: colors.text }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <span style={{ color: colors.textLight }}>Refacción:</span>
+                      <span style={{ fontWeight: '600' }}>{sale.model}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <span style={{ color: colors.textLight }}>Categoría:</span>
+                      <span style={{ fontWeight: '600' }}>{sale.color || '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: colors.textLight }}>Cantidad:</span>
+                      <span style={{ fontWeight: 'bold' }}>{quantity} pieza(s)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Customer Info */}
+                <div>
+                  <h3 style={{
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    color: colors.primary,
+                    margin: '0 0 8px 0',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    borderBottom: `1px solid ${colors.border}`,
+                    paddingBottom: '4px',
+                  }}>
+                    Cliente
+                  </h3>
+                  <div style={{ fontSize: '10px', lineHeight: '1.7', color: colors.text }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <span style={{ color: colors.textLight }}>Nombre:</span>
+                      <span style={{ fontWeight: '600' }}>{sale.customerName}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <span style={{ color: colors.textLight }}>Teléfono:</span>
+                      <span style={{ fontWeight: '600' }}>{sale.customerPhone}</span>
+                    </div>
+                    {sale.customerEmail && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: colors.textLight }}>Email:</span>
+                        <span style={{ fontWeight: '600', fontSize: '9px' }}>{sale.customerEmail}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right column */}
+              <div>
+                {/* Compra / Venta Info */}
+                <div style={{ marginBottom: '15px' }}>
+                  <h3 style={{
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    color: colors.primary,
+                    margin: '0 0 8px 0',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    borderBottom: `1px solid ${colors.border}`,
+                    paddingBottom: '4px',
+                  }}>
+                    Compra
+                  </h3>
+                  <div style={{ fontSize: '10px', lineHeight: '1.7', color: colors.text }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <span style={{ color: colors.textLight }}>Fecha:</span>
+                      <span style={{ fontWeight: '600' }}>{formatDate(sale.saleDate)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <span style={{ color: colors.textLight }}>Precio unitario:</span>
+                      <span style={{ fontWeight: '600' }}>{formatCurrency(unitPrice)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <span style={{ color: colors.textLight }}>Precio total:</span>
+                      <span style={{ fontWeight: 'bold', color: colors.primaryDark }}>{formatCurrency(sale.salePrice)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                      <span style={{ color: colors.textLight }}>Tipo/canal de venta:</span>
+                      <span style={{ fontWeight: 'bold' }}>{channelLabel}</span>
+                    </div>
+                    {sale.paymentMethod && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: colors.textLight }}>Pago:</span>
+                        <span style={{ fontWeight: '600' }}>{sale.paymentMethod}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Warranty Period - Refacciones */}
+                <div style={{
+                  background: '#f8fafc',
+                  borderRadius: '4px',
+                  padding: '10px',
+                  border: `1px solid ${colors.border}`,
+                }}>
+                  <h3 style={{
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    color: colors.primary,
+                    margin: '0 0 6px 0',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                  }}>
+                    Vigencia
+                  </h3>
+                  <div style={{ fontSize: '10px', lineHeight: '1.6', color: colors.text }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <span style={{ color: colors.textLight }}>Duración:</span>
+                      <span style={{ fontWeight: 'bold', color: colors.primary }}>1 MES (30 días)</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <span style={{ color: colors.textLight }}>Inicio:</span>
+                      <span style={{ fontWeight: '600' }}>{formatDate(sale.saleDate)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: colors.textLight }}>Vencimiento:</span>
+                      <span style={{ fontWeight: 'bold', color: colors.primary }}>{formatDate(warrantyEndStr)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Coverage - Refacciones */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+              {/* Covers */}
+              <div style={{
+                border: `1px solid ${colors.border}`,
+                borderRadius: '4px',
+                padding: '10px',
+              }}>
+                <h3 style={{
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  color: colors.primary,
+                  margin: '0 0 6px 0',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                }}>
+                  ✓ Cobertura
+                </h3>
+                <ul style={{ fontSize: '9px', lineHeight: '1.5', margin: 0, paddingLeft: '15px', color: colors.text }}>
+                  <li>Defectos de fabricación de la refacción</li>
+                  <li>Pieza que no enciende / no da imagen</li>
+                  <li>Batería que no retiene carga o apaga sola</li>
+                  <li>Fallas de función comprobadas por nuestro diagnóstico</li>
+                </ul>
+              </div>
+
+              {/* Does not cover */}
+              <div style={{
+                border: `1px solid ${colors.border}`,
+                borderRadius: '4px',
+                padding: '10px',
+              }}>
+                <h3 style={{
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  color: colors.textLight,
+                  margin: '0 0 6px 0',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                }}>
+                  ✗ Exclusiones
+                </h3>
+                <ul style={{ fontSize: '9px', lineHeight: '1.5', margin: 0, paddingLeft: '15px', color: colors.text }}>
+                  <li>Instalación realizada por terceros</li>
+                  <li>Piezas mojadas, golpeadas o maltratadas</li>
+                  <li>Pantallas con vidrio roto, manchas o líneas por golpe</li>
+                  <li>Baterías infladas por mal uso o cargadores no certificados</li>
+                  <li>Desgaste normal por uso</li>
+                  <li>Refacciones instaladas en otro equipo</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Observations */}
+            {observations && (
+              <div style={{
+                border: `1px solid ${colors.border}`,
+                borderRadius: '4px',
+                padding: '10px',
+                marginBottom: '15px',
+                background: '#fafafa',
+              }}>
+                <h3 style={{
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  color: colors.primary,
+                  margin: '0 0 6px 0',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                }}>
+                  Observaciones
+                </h3>
+                <p style={{ fontSize: '9px', margin: 0, lineHeight: '1.4', color: colors.text }}>
+                  {observations}
+                </p>
+              </div>
+            )}
+
+            {/* Terms - Refacciones */}
+            <div style={{
+              fontSize: '8px',
+              color: colors.textLight,
+              lineHeight: '1.4',
+              marginBottom: '15px',
+              padding: '8px',
+              background: '#fafafa',
+              borderRadius: '3px',
+            }}>
+              <strong style={{ color: colors.text, display: 'block', marginBottom: '4px', fontSize: '9px' }}>
+                Términos y Condiciones
+              </strong>
+              • Para hacer válida la garantía, presentar esta póliza y la refacción.<br/>
+              • La revisión y reinstalación cubierta se realiza en Celulares González.<br/>
+              • Si la falla es del equipo (no de la refacción), la mano de obra tiene costo.<br/>
+              • Pasada la fecha de vencimiento, cualquier reemplazo tendrá costo.
+            </div>
+
+            {/* Acceptance Declaration */}
+            <div style={{
+              border: `1px solid ${colors.primary}`,
+              borderRadius: '4px',
+              padding: '10px',
+              marginBottom: '15px',
+              background: '#f0f9ff',
+              textAlign: 'center',
+            }}>
+              <p style={{
+                fontSize: '9px',
+                margin: 0,
+                lineHeight: '1.4',
+                color: colors.text,
+                fontWeight: '600',
+              }}>
+                Al realizar la compra de esta refacción, el cliente acepta los términos y condiciones de garantía de <strong style={{ color: colors.primary }}>Celulares González</strong>.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              textAlign: 'center',
+              borderTop: `1px solid ${colors.border}`,
+              paddingTop: '12px',
+              marginTop: 'auto',
+            }}>
+              <div style={{
+                fontSize: '11px',
+                fontWeight: 'bold',
+                color: colors.primary,
+                marginBottom: '3px',
+                letterSpacing: '1px',
+              }}>
+                CELULARES GONZÁLEZ
+              </div>
+              <div style={{
+                fontSize: '8px',
+                color: colors.textLight,
+              }}>
+                Calidad y confianza garantizada
+              </div>
+            </div>
+          </div>
+          ) : (
+          /* ============ PÓLIZA NORMAL PARA DISPOSITIVOS ============ */
           <div 
             ref={policyRef}
             style={{
@@ -530,6 +952,7 @@ _Gracias por su compra_ 🙏`;
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Observations Input */}

@@ -606,3 +606,30 @@ export function applySuggestedPrices(form: Refaccion): Refaccion {
     suggestedMercadoLibrePrice: calcMercadoLibrePrice(base),
   };
 }
+
+// ============ Nombre automático de refacciones ============
+// Fórmula: Categoría + Modelo compatible + Calidad
+// Ejemplo: "Batería iPhone 13 Diagnostico"
+export function buildRefaccionName(
+  category?: string,
+  compatibleModels?: string,
+  quality?: string
+): string {
+  const cat = String(category || '').trim();
+  // Si hay varios modelos compatibles, usa el primero para el nombre.
+  const model = String(compatibleModels || '')
+    .split(',')[0]
+    .trim();
+  const qual = String(quality || '').trim();
+  const parts = [cat, model, qual].filter(Boolean);
+  return parts.join(' ');
+}
+
+// ============ Proveedores registrados desde refacciones ============
+// Cuando se guarda una refacción con proveedor, este queda disponible para
+// futuras compras/lotes (misma lista que usa SupplierSelector).
+export function registerSupplier(name?: string): void {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return;
+  addSupplier(trimmed);
+}

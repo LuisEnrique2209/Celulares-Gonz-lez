@@ -188,24 +188,32 @@ export interface QualityCheck {
   checkedBy: string;
 }
 
+// Calidad de la refacción (ya no es texto libre: solo Diagnóstico u Original)
+export type RefaccionQuality = 'Diagnostico' | 'Original';
+
+export const REFACCION_QUALITIES: RefaccionQuality[] = ['Diagnostico', 'Original'];
+
 // Refacciones (repuestos / parts) usadas en reparaciones y venta suelta
 export interface Refaccion {
   id: string;
-  name: string;              // p.ej. "Batería iPhone 11"
+  name: string;              // Se genera automáticamente: Categoría + Modelo + Calidad
+                             // p.ej. "Batería iPhone 13 Diagnostico"
   category: string;          // Baterías, Pantallas, Cámaras, Botones, Flex, Cargos, etc.
-  brand?: string;            // Marca del repuesto (Original, OEM, Genérica...)
-  compatibleModels?: string; // Modelos compatibles (texto libre)
+  brand?: string;            // Calidad del repuesto: 'Diagnostico' | 'Original'
+  compatibleModels?: string; // Modelos compatibles (se eligen con búsqueda por marca/modelo)
   quantity: number;          // Existencias disponibles
   minStock: number;          // Nivel mínimo para alerta de compra
-  costPrice: number;         // Precio de compra (unitario)
-  salePrice: number;         // Precio de venta / costo aplicado en reparaciones
+  costPrice: number;         // Precio de compra (unitario). OPCIONAL: si no se
+                             // captura, las sugerencias salen del precio de venta.
+  salePrice: number;         // Precio de venta (unitario). OPCIONAL: si no se
+                             // captura, las sugerencias salen del precio de compra.
   supplier?: string;
   location?: string;         // Estante / casillero
   notes?: string;
   createdAt: string;
   // ---- Precios sugeridos por canal de venta ----
-  // Se calculan automáticamente desde el precio base (precio de venta), pero
-  // pueden editarse manualmente si se quiere un precio distinto.
+  // Se calculan automáticamente desde el precio capturado (compra o venta),
+  // pero pueden editarse manualmente si se quiere un precio distinto.
   suggestedTallerPrice?: number;      // Taller: precio × 1.30
   suggestedMercadoLibrePrice?: number; // Mercado Libre: ((precio × 1.25) + 59.60) / 0.7145
 }
