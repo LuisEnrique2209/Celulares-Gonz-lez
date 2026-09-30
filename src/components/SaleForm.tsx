@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Sale, Device, Lot, Customer, Refaccion } from '../types';
 import { generateId, formatCurrency, getCustomers, addOrUpdateCustomer } from '../store';
+import { firebaseCustomers } from '../firebaseService';
 import CustomerSelector from './CustomerSelector';
 
 interface Props {
@@ -75,14 +76,36 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Registrar/generar el cliente en Firebase además del localStorage.
+  // El correo (Gmail) se envía explícitamente como null si viene vacío, para
+  // que el documento siempre tenga el campo y nunca falle la escritura por
+  // valores undefined en Firestore.
+  const persistCustomer = async (name: string, phone: string, email: string, amount: number, date: string) => {
+    addOrUpdateCustomer(name, phone, email || undefined, amount, date);
+    try {
+      await firebaseCustomers.addOrUpdate({
+        id: generateId(),
+        name,
+        phone,
+        email: email || null,
+        totalPurchases: 1,
+        totalSpent: amount,
+        firstPurchaseDate: date,
+        lastPurchaseDate: date,
+      } as Customer);
+    } catch (err) {
+      console.warn('No se pudo sincronizar el cliente en Firebase:', err);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (saleType === 'dispositivo') {
       if (!selectedDevice) return;
 
-      // Save customer
-      addOrUpdateCustomer(customerName, customerPhone, customerEmail || undefined, parseFloat(salePrice) || 0, saleDate);
+      // Save customer (Firebase + local)
+      await persistCustomer(customerName.trim(), customerPhone.trim(), customerEmail.trim(), parseFloat(salePrice) || 0, saleDate);
 
       const sale: Sale = {
         id: editingSale?.id || generateId(),
@@ -96,9 +119,9 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
         saleDate,
         salePrice: parseFloat(salePrice) || 0,
         quantity: 1,
-        customerName,
-        customerPhone,
-        customerEmail: customerEmail || undefined,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        customerEmail: customerEmail.trim() || undefined,
         paymentMethod: paymentMethod || undefined,
         notes,
       };
@@ -114,7 +137,7 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
       return;
     }
 
-    addOrUpdateCustomer(customerName, customerPhone, customerEmail || undefined, parseFloat(salePrice) || 0, saleDate);
+    await persistCustomer(customerName.trim(), customerPhone.trim(), customerEmail.trim(), parseFloat(salePrice) || 0, saleDate);
 
     const sale: Sale = {
       id: editingSale?.id || generateId(),
@@ -128,9 +151,9 @@ export default function SaleForm({ devices, lots, refacciones, onSave, editingSa
       saleDate,
       salePrice: parseFloat(salePrice) || 0,
       quantity: qty,
-      customerName,
-      customerPhone,
-      customerEmail: customerEmail || undefined,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      customerEmail: customerEmail.trim() || undefined,
       paymentMethod: paymentMethod || undefined,
       notes,
     };

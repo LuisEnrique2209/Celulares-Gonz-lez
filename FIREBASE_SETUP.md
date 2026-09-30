@@ -156,6 +156,18 @@ VITE_FIREBASE_AUTH_DOMAIN=tu_auth_domain
 VITE_FIREBASE_PROJECT_ID=tu_project_id
 ```
 
+3. Agrega las credenciales del administrador:
+
+```
+VITE_ADMIN_EMAIL=luissenriqueg2@gmail.com
+VITE_ADMIN_PASSWORD=LuisEnrique2209
+```
+
+> Nota: si no defines estas variables, la app usa por defecto
+> `luissenriqueg2@gmail.com` / `LuisEnrique2209` (definidos en `src/admin.ts`).
+> Después de agregar o cambiar variables en Vercel, haz **Redeploy**
+> para que se apliquen en producción.
+
 ## 📱 Acceso desde Cualquier Dispositivo
 
 Una vez publicado en Vercel:

@@ -338,6 +338,24 @@ export default function App() {
     try {
       const isRefaccionSale = sale.type === 'refaccion';
 
+      // Asegurar que el cliente (con su Gmail, si lo registró) exista en la
+      // nube. Esto cubre ventas hechas cuando el cliente solo se guardaba en
+      // localStorage o cuando la sincronización previa falló.
+      try {
+        await firebaseCustomers.addOrUpdate({
+          id: generateId(),
+          name: sale.customerName,
+          phone: sale.customerPhone,
+          email: sale.customerEmail || null,
+          totalPurchases: 1,
+          totalSpent: Number(sale.salePrice) || 0,
+          firstPurchaseDate: sale.saleDate,
+          lastPurchaseDate: sale.saleDate,
+        } as Customer);
+      } catch (err) {
+        console.warn('No se pudo sincronizar el cliente en Firebase:', err);
+      }
+
       if (editingSale) {
         await firebaseSales.update(sale);
         setEditingSale(null);
@@ -380,9 +398,10 @@ export default function App() {
       const updatedCustomers = await firebaseCustomers.getAll();
       setSales(updatedSales);
       setCustomers(updatedCustomers);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error guardando venta:', error);
-      alert('Error al guardar la venta. Intenta de nuevo.');
+      const detail = error?.message ? ` Detalle: ${error.message}` : '';
+      alert(`Error al guardar la venta.${detail} Intenta de nuevo.`);
     }
   };
 
