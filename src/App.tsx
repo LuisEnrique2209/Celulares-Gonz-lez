@@ -33,6 +33,7 @@ import RepairForm from './components/RepairForm';
 import FinancialAnalysis from './components/FinancialAnalysis';
 import Goals from './components/Goals';
 import FirebaseConfig from './components/FirebaseConfig';
+import Admin from './components/Admin';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -637,6 +638,7 @@ export default function App() {
     { id: 'add-device' as TabType, label: 'Nuevo Dispositivo', icon: '📱' },
     { id: 'add-sale' as TabType, label: 'Nueva Venta', icon: '🛒' },
     { id: 'add-repair' as TabType, label: 'Nueva Reparación', icon: '🔨' },
+    { id: 'admin' as TabType, label: 'Administración', icon: '⚙️' },
   ];
 
   // Verificar si Firebase está configurado
@@ -692,6 +694,8 @@ export default function App() {
         return <Repairs repairs={repairs} onEdit={handleEditRepair} onDelete={handleDeleteRepair} />;
       case 'quality-check':
         return <QualityChecks checks={checks} lots={lots} onEdit={handleEditCheck} onDelete={handleDeleteCheck} />;
+      case 'admin':
+        return <Admin onBack={() => setActiveTab('dashboard')} />;
       case 'check-lot':
         if (checkingLot) {
           return (
